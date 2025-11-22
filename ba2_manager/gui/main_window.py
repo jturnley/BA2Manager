@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QTextEdit, QMessageBox, QListWidget, QListWidgetItem,
     QProgressBar, QGroupBox, QFormLayout, QFileDialog, QDialog,
-    QDialogButtonBox, QLineEdit, QCheckBox
+    QDialogButtonBox, QLineEdit, QCheckBox, QApplication
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QColor
@@ -68,10 +68,12 @@ class MainWindow(QMainWindow):
                     archive2_path = str(archive2_candidate)
                 
         log_file = self.config.get("log_file", "BA2_Extract.log")
+        backup_dir = self.config.get("backup_dir", "")
         
         self.ba2_handler = BA2Handler(
             archive2_path=archive2_path if archive2_path else None,
             mo2_dir=mo2_mods_dir,
+            backup_dir=backup_dir if backup_dir else None,
             log_file=log_file
         )
         self.current_view = None
@@ -760,13 +762,18 @@ class MainWindow(QMainWindow):
                 # === CREATE LIST ITEM WITH CHECKBOX ===
                 item = QListWidgetItem(item_text)
                 item.setData(Qt.ItemDataRole.UserRole, mod.mod_name)  # Store mod name for reference
-                item.setCheckState(Qt.CheckState.Unchecked)  # Default: mods in BA2 archive format
+                
+                # Set state based on whether mod is already extracted
+                if mod.is_extracted:
+                    item.setCheckState(Qt.CheckState.Checked)
+                    item.setForeground(QColor("#4CAF50"))  # Green for extracted
+                    self.mod_extracted_status[i] = True
+                else:
+                    item.setCheckState(Qt.CheckState.Unchecked)
+                    self.mod_extracted_status[i] = False
+                    
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)  # Enable checkbox
                 self.mod_list.addItem(item)
-                
-                # === TRACK INITIAL STATE ===
-                # Set initial state to False (not extracted) to match checkbox default
-                self.mod_extracted_status[i] = False
             
             # === UPDATE STATUS ===
             if not mods:
@@ -821,72 +828,85 @@ class MainWindow(QMainWindow):
         
         NEW WORKFLOW:
         - User checks boxes -> items turn GREY (pending extraction)
-        - User clicks "Apply Changes" -> extraction happens (simulated)
+        - User clicks "Apply Changes" -> extraction happens
         - After completion -> items turn GREEN (extraction complete)
         - User unchecks box -> item turns BLACK (restored/normal)
-        
-        LOGIC:
-        This is the core operation handler. It compares the CURRENT checkbox state
-        with the TRACKED state to determine what changed:
-        
-        - If checkbox is CHECKED and tracked state is False -> EXTRACT (turn grey, then green)
-        - If checkbox is UNCHECKED and tracked state is True -> RESTORE (turn black)
-        - If checkbox state == tracked state -> NO CHANGE (skip this item)
-        
-        VISUAL FEEDBACK SEQUENCE:
-        1. User checks box -> (happens automatically with item color change on checkbox event)
-        2. User clicks Apply Changes -> trigger extraction
-        3. Extraction completes -> items go grey -> green
-        
-        FLOW:
-        1. Iterate through all mods in list
-        2. Compare checkbox state vs. mod_extracted_status[index]
-        3. Call pending_extraction() (grey) for items to extract
-        4. Call mark_mod_extracted() (green) to complete extraction
-        5. Call unmark_mod_extracted() (black) to restore
-        6. Report changes to user via status message
         """
         changes_made = False
         extracted_count = 0
         restored_count = 0
+        failed_count = 0
         
-        for i in range(self.mod_list.count()):
-            item = self.mod_list.item(i)
-            
-            # === CHECK CURRENT CHECKBOX STATE ===
-            is_checked = item.checkState() == Qt.CheckState.Checked
-            
-            # === GET TRACKED STATE ===
-            # mod_extracted_status tracks whether we consider the mod "extracted"
-            was_extracted = self.mod_extracted_status.get(i, False)
-            
-            # === DETECT STATE CHANGE ===
-            # Only proceed if checkbox state differs from tracked state
-            if is_checked != was_extracted:
-                changes_made = True
+        # Disable UI during operation
+        self.setEnabled(False)
+        self.mod_status.setText("Processing changes... Please wait.")
+        QApplication.processEvents()
+        
+        try:
+            for i in range(self.mod_list.count()):
+                item = self.mod_list.item(i)
+                mod_name = item.data(Qt.ItemDataRole.UserRole)
                 
-                if is_checked:
-                    # User checked box -> EXTRACT this mod
-                    # First turn grey (pending), then green (complete)
-                    self.pending_extraction(i)  # Turn grey
-                    # TODO: Call actual extraction here
-                    self.mark_mod_extracted(i)  # Turn green when done
-                    extracted_count += 1
-                else:
-                    # User unchecked box -> RESTORE this mod
-                    self.unmark_mod_extracted(i)  # Turn black
-                    restored_count += 1
-        
-        # === REPORT RESULTS ===
-        if not changes_made:
-            self.mod_status.setText("No changes to apply.")
-        else:
-            message = "Changes applied!"
-            if extracted_count > 0:
-                message += f" Extracted {extracted_count} mod(s)."
-            if restored_count > 0:
-                message += f" Restored {restored_count} mod(s)."
-            self.mod_status.setText(message)
+                if not mod_name:
+                    continue
+                
+                # === CHECK CURRENT CHECKBOX STATE ===
+                is_checked = item.checkState() == Qt.CheckState.Checked
+                
+                # === GET TRACKED STATE ===
+                was_extracted = self.mod_extracted_status.get(i, False)
+                
+                # === DETECT STATE CHANGE ===
+                if is_checked != was_extracted:
+                    changes_made = True
+                    
+                    if is_checked:
+                        # User checked box -> EXTRACT this mod
+                        self.pending_extraction(i)
+                        QApplication.processEvents()
+                        
+                        if self.ba2_handler.extract_mod(mod_name):
+                            self.mark_mod_extracted(i)
+                            extracted_count += 1
+                        else:
+                            # Failed - revert visual state
+                            item.setCheckState(Qt.CheckState.Unchecked)
+                            self.unmark_mod_extracted(i)
+                            failed_count += 1
+                            
+                    else:
+                        # User unchecked box -> RESTORE this mod
+                        if self.ba2_handler.restore_mod(mod_name):
+                            self.unmark_mod_extracted(i)
+                            restored_count += 1
+                        else:
+                            # Failed - revert visual state
+                            item.setCheckState(Qt.CheckState.Checked)
+                            self.mark_mod_extracted(i)
+                            failed_count += 1
+            
+            # === REPORT RESULTS ===
+            if not changes_made:
+                self.mod_status.setText("No changes to apply.")
+            else:
+                message = "Operation complete!"
+                if extracted_count > 0:
+                    message += f"\nExtracted {extracted_count} mod(s)."
+                if restored_count > 0:
+                    message += f"\nRestored {restored_count} mod(s)."
+                if failed_count > 0:
+                    message += f"\nFailed operations: {failed_count}. Check logs."
+                self.mod_status.setText(message)
+                
+                # Refresh the BA2 count bar
+                self.refresh_ba2_count()
+                
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.mod_status.setText(f"Error applying changes: {e}")
+        finally:
+            self.setEnabled(True)
     
     def pending_extraction(self, index: int):
         """
