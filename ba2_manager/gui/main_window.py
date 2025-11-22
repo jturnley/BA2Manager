@@ -302,16 +302,20 @@ class MainWindow(QMainWindow):
                 border-radius: 3px;
             }}
         """)
-        self.ba2_value_label.setText(str(value))
-        self.ba2_status_label.setText(status)
         
-        # Update label color
+        # Determine status text and color
         if value > 500:
+            status = "DANGER"
             label_style = "color: #FF6B6B; font-weight: bold;"
         elif value > 350:
+            status = "WARNING"
             label_style = "color: #FFB74D; font-weight: bold;"
         else:
+            status = "SAFE"
             label_style = "color: #4CAF50; font-weight: bold;"
+            
+        self.ba2_value_label.setText(str(value))
+        self.ba2_status_label.setText(status)
         self.ba2_value_label.setStyleSheet(label_style)
     
     def clear_content(self):
@@ -628,55 +632,63 @@ class MainWindow(QMainWindow):
         settings_widget.setLayout(settings_layout)
         self.content_layout.addWidget(settings_widget)
     
+    def safe_set_text(self, widget_name, text):
+        """Safely set text on a widget that might have been deleted"""
+        try:
+            if hasattr(self, widget_name):
+                widget = getattr(self, widget_name)
+                if widget:
+                    widget.setText(text)
+        except RuntimeError:
+            # Widget has been deleted (C++ object gone)
+            pass
+
+    def safe_set_style(self, widget_name, style):
+        """Safely set stylesheet on a widget that might have been deleted"""
+        try:
+            if hasattr(self, widget_name):
+                widget = getattr(self, widget_name)
+                if widget:
+                    widget.setStyleSheet(style)
+        except RuntimeError:
+            pass
+
     def refresh_ba2_count(self):
         """Refresh BA2 count"""
-        print("DEBUG: refresh_ba2_count called")
         try:
             fo4_path = self.config.get("fo4_path", "")
             if not fo4_path:
-                if hasattr(self, 'info_status') and self.info_status:
-                    self.info_status.setText("ERROR: Fallout 4 path not configured in Settings")
+                self.safe_set_text('info_status', "ERROR: Fallout 4 path not configured in Settings")
                 # Set bar to 0 if not configured
                 self.ba2_progress.setValue(0)
                 self.update_ba2_bar_style(0)
                 return
             
-            print("DEBUG: Calling count_ba2_files")
             counts = self.ba2_handler.count_ba2_files(fo4_path)
-            print(f"DEBUG: count_ba2_files returned: {counts}")
             total = counts["total"]
             
             # Update the BA2 status bar on the left (Always update this)
-            print(f"DEBUG: Updating progress bar with total {total}")
             self.ba2_progress.setValue(total)
             self.update_ba2_bar_style(total)
             
             # Update all the category counts (with safety checks)
-            if hasattr(self, 'info_main') and self.info_main:
-                self.info_main.setText(str(counts["main"]))
-            if hasattr(self, 'info_dlc') and self.info_dlc:
-                self.info_dlc.setText(str(counts["dlc"]))
-            if hasattr(self, 'info_cc') and self.info_cc:
-                self.info_cc.setText(str(counts["creation_club"]))
-            if hasattr(self, 'info_creation_store') and self.info_creation_store:
-                self.info_creation_store.setText(str(counts["creation_store"]))
-            if hasattr(self, 'info_mods') and self.info_mods:
-                self.info_mods.setText(str(counts["mods"]))
-            if hasattr(self, 'info_replacements') and self.info_replacements:
-                self.info_replacements.setText(f"{counts['replacements']} (not counted)")
+            self.safe_set_text('info_main', str(counts["main"]))
+            self.safe_set_text('info_dlc', str(counts["dlc"]))
+            self.safe_set_text('info_cc', str(counts["creation_club"]))
+            self.safe_set_text('info_creation_store', str(counts["creation_store"]))
+            self.safe_set_text('info_mods', str(counts["mods"]))
+            self.safe_set_text('info_replacements', f"{counts['replacements']} (not counted)")
             
             total_str = f"{total}/255"
-            if hasattr(self, 'info_total') and self.info_total:
-                self.info_total.setText(total_str)
+            self.safe_set_text('info_total', total_str)
             
             # Color code the total based on thresholds
-            if hasattr(self, 'info_total') and self.info_total:
-                if total > 500:
-                    self.info_total.setStyleSheet("color: #FF6B6B; font-weight: bold;")
-                elif total > 350:
-                    self.info_total.setStyleSheet("color: #FFB74D; font-weight: bold;")
-                else:
-                    self.info_total.setStyleSheet("color: #4CAF50; font-weight: bold;")
+            if total > 500:
+                self.safe_set_style('info_total', "color: #FF6B6B; font-weight: bold;")
+            elif total > 350:
+                self.safe_set_style('info_total', "color: #FFB74D; font-weight: bold;")
+            else:
+                self.safe_set_style('info_total', "color: #4CAF50; font-weight: bold;")
             
             # Build status message with recommendations
             status_lines = ["Safe Limit: 350", "Warning Zone: 350-500", "Danger Zone: 500+", ""]
@@ -701,15 +713,12 @@ class MainWindow(QMainWindow):
                 status_lines.append("STATUS: SAFE - All good!")
                 status_lines.append("Your BA2 count is within safe limits.")
             
-            self.info_status.setText("\n".join(status_lines))
-            print("DEBUG: refresh_ba2_count finished")
+            self.safe_set_text('info_status', "\n".join(status_lines))
             
         except Exception as e:
-            print(f"DEBUG: Exception in refresh_ba2_count: {e}")
             import traceback
             traceback.print_exc()
-            if hasattr(self, 'info_status') and self.info_status:
-                self.info_status.setText(f"Error counting BA2s: {str(e)}")
+            self.safe_set_text('info_status', f"Error counting BA2s: {str(e)}")
             # Set bar to 0 on error
             self.ba2_progress.setValue(0)
             self.update_ba2_bar_style(0)
@@ -990,7 +999,6 @@ class MainWindow(QMainWindow):
 
     def apply_cc_changes(self):
         """Apply changes to Fallout4.ccc based on checkbox states"""
-        print("DEBUG: apply_cc_changes called")
         try:
             fo4_path = self.config.get("fo4_path", "")
             if not fo4_path:
@@ -1000,7 +1008,6 @@ class MainWindow(QMainWindow):
             enabled_plugins = []
             
             # Gather all checked items
-            print(f"DEBUG: Scanning {self.cc_list.count()} items")
             for i in range(self.cc_list.count()):
                 item = self.cc_list.item(i)
                 if item.checkState() == Qt.CheckState.Checked:
@@ -1008,23 +1015,14 @@ class MainWindow(QMainWindow):
                     plugin_filename = item.data(Qt.ItemDataRole.UserRole)
                     if plugin_filename:
                         enabled_plugins.append(plugin_filename)
-                    else:
-                        print(f"DEBUG: Item {i} has no UserRole data")
-            
-            print(f"DEBUG: Found {len(enabled_plugins)} enabled plugins")
             
             # Call handler to write the file
-            print("DEBUG: Calling write_ccc_file")
             if self.ba2_handler.write_ccc_file(fo4_path, enabled_plugins):
                 self.cc_status.setText(f"Successfully updated Fallout4.ccc with {len(enabled_plugins)} active plugins.")
-                print("DEBUG: write_ccc_file success, calling refresh_ba2_count")
                 self.refresh_ba2_count()
-                print("DEBUG: refresh_ba2_count returned")
             else:
                 self.cc_status.setText("Error updating Fallout4.ccc. Check logs for details.")
-                print("DEBUG: write_ccc_file failed")
         except Exception as e:
-            print(f"DEBUG: Exception in apply_cc_changes: {e}")
             import traceback
             traceback.print_exc()
             QMessageBox.critical(self, "Error", f"Crash prevented in apply_cc_changes: {e}")
@@ -1176,6 +1174,10 @@ class MainWindow(QMainWindow):
 
     def update_settings_status(self):
         """Update configuration status display"""
+        # Safety check for deleted widget
+        if not hasattr(self, 'settings_status') or self.settings_status is None:
+            return
+
         status_lines = []
         
         mo2_path = self.config.get("mo2_mods_dir", "")
@@ -1200,17 +1202,26 @@ class MainWindow(QMainWindow):
         else:
             status_lines.append("✗ Fallout 4: Not configured")
         
-        self.settings_status.setText("\n".join(status_lines))
+        try:
+            self.settings_status.setText("\n".join(status_lines))
+        except RuntimeError:
+            # Widget has been deleted
+            pass
     
     def save_settings(self):
         """Save settings"""
         try:
-            self.config.update({
-                "archive2_path": self.settings_archive2_display.text(),
-                "mo2_mods_dir": self.settings_mo2_display.text(),
-                "fo4_path": self.settings_fo4_display.text(),
-                "debug_logging": self.debug_logging_checkbox.isChecked(),
-            })
+            # Check for deleted widgets before accessing
+            try:
+                self.config.update({
+                    "archive2_path": self.settings_archive2_display.text(),
+                    "mo2_mods_dir": self.settings_mo2_display.text(),
+                    "fo4_path": self.settings_fo4_display.text(),
+                    "debug_logging": self.debug_logging_checkbox.isChecked(),
+                })
+            except RuntimeError:
+                # Widgets have been deleted
+                return
             
             # Reinitialize BA2Handler with new paths
             mo2_mods_dir = self.config.get("mo2_mods_dir", "mods")
