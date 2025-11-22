@@ -35,6 +35,7 @@ import os
 import re
 import subprocess
 import logging
+import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
@@ -281,39 +282,19 @@ class BA2Handler:
         "DLCNukaWorld - Textures.ba2",
     ]
     
-    def __init__(self, archive2_path: Optional[str] = None, mo2_dir: Optional[str] = None, log_file: Optional[str] = None):
+    def __init__(self, archive2_path: Optional[str] = None, mo2_dir: Optional[str] = None, backup_dir: Optional[str] = None, log_file: Optional[str] = None):
         r"""
         Initialize BA2 handler with paths and logging.
         
         PARAMETERS:
             archive2_path (str, optional): Full path to Archive2.exe
-                - Used for future extraction/restoration operations
-                - Not required for BA2 counting
-                - Example: "C:\path\to\Archive2.exe"
-            
             mo2_dir (str, optional): Path to MO2 mods directory
-                - Required to scan for mod BA2 files
-                - Expected structure: mods/**/*.ba2 (recursive)
-                - Defaults to "mods" if not provided
-            
+            backup_dir (str, optional): Path to backup directory for extracted mods
             log_file (str, optional): Path to log file
-                - All operations logged here for debugging
-                - Defaults to "BA2_Extract.log" in working directory
-                - Appends to existing file on restart
-        
-        LOGGING SETUP:
-        - Creates FileHandler appending to log_file
-        - Sets format: "timestamp - level - message"
-        - Clears any existing handlers to avoid duplicates
-        - Handles permission errors gracefully
-        
-        INITIALIZATION NOTES:
-        - This is called when application starts and when settings change
-        - If mo2_dir doesn't exist, logging will show "Mods directory does not exist"
-        - Check BA2_Extract.log if counting returns unexpected values
         """
         self.archive2_path = archive2_path
         self.mo2_dir = mo2_dir or "mods"
+        self.backup_dir = backup_dir or "mod_backups"
         self.log_file = log_file or "BA2_Extract.log"
         self.failed_extractions = []
         
@@ -578,30 +559,82 @@ class BA2Handler:
         return sorted(packages, key=lambda x: x[1])  # Sort by display name
     
     def list_ba2_mods(self) -> List[BA2Info]:
-        """List all BA2 mod files"""
+        """
+        List all BA2 mod files and extracted mods.
+        
+        Scans both the MO2 mods directory for BA2 files AND the backup directory
+        for extracted mods.
+        
+        Returns:
+            List of BA2Info objects sorted by mod name
+        """
         ba2_files = []
         mods_path = Path(self.mo2_dir)
+        backup_path = Path(self.backup_dir)
         
+        # Track which mods we've already found to avoid duplicates
+        found_mods = set()
+        
+        # 1. Scan for BA2 files in mods directory (Normal state)
         if mods_path.exists():
             try:
                 for ba2_file in mods_path.rglob("*.ba2"):
                     try:
-                        # Determine if it's in an extracted or BA2 folder
-                        is_extracted = False
                         mod_name = ba2_file.parent.name
+                        
+                        # Skip if we've already processed this mod (one entry per mod)
+                        # Wait, the original logic returned one entry per BA2 file?
+                        # Let's check the original code.
+                        # Original: ba2_files.append(BA2Info(path=str(ba2_file), ...))
+                        # It returned one entry per BA2 file.
+                        # But the GUI seems to list mods, not files?
+                        # "item_text = f"{mod.mod_name} ({size_mb:.1f} MB)"
+                        # If a mod has multiple BA2s, it would appear multiple times in the list.
+                        # The PowerShell script groups by mod.
+                        # Let's see how the GUI handles it.
+                        # GUI: for i, mod in enumerate(mods): ... self.mod_list.addItem(item)
+                        # So if a mod has 2 BA2s, and I check one, what happens?
+                        # The PowerShell script lists MODS, not BA2s.
+                        # "Select mods to EXTRACT..."
+                        # I should probably group by mod here to match PowerShell behavior.
+                        # But let's look at what I can do with minimal changes first.
+                        # If I group by mod, I need to aggregate size and file count.
+                        
+                        # Let's change it to group by mod, as that's what the user expects.
+                        # But wait, `BA2Info` has a `path` attribute. If I group, what is `path`?
+                        # It should probably be the mod directory path.
+                        
+                        # Let's see what `BA2Info` is used for.
+                        # GUI uses: mod.size, mod.mod_name.
+                        # It doesn't seem to use mod.path for extraction yet (because extraction wasn't implemented).
+                        
+                        # I will modify this to return one entry per MOD.
+                        
+                        mod_dir_path = ba2_file.parent
+                        if mod_name in found_mods:
+                            # Update existing entry size
+                            for info in ba2_files:
+                                if info.mod_name == mod_name:
+                                    info.size += ba2_file.stat().st_size
+                                    info.file_count += 1
+                                    break
+                            continue
+                        
+                        found_mods.add(mod_name)
                         
                         # Safely get file size
                         try:
                             file_size = ba2_file.stat().st_size
                         except (OSError, IOError) as e:
                             self.logger.warning(f"Could not stat file {ba2_file}: {e}")
-                            continue
+                            file_size = 0
                         
                         ba2_info = BA2Info(
-                            path=str(ba2_file),
+                            path=str(mod_dir_path), # Store mod dir path instead of file path
                             size=file_size,
                             mod_name=mod_name,
-                            is_extracted=is_extracted
+                            is_extracted=False,
+                            file_count=1
                         )
                         ba2_files.append(ba2_info)
                     except Exception as e:
@@ -611,6 +644,42 @@ class BA2Handler:
                 self.logger.error(f"Error listing BA2 mods in {self.mo2_dir}: {e}")
         else:
             self.logger.info(f"Mods directory does not exist: {self.mo2_dir}")
+            
+        # 2. Scan for extracted mods in backup directory
+        if backup_path.exists():
+            try:
+                for mod_backup in backup_path.iterdir():
+                    if mod_backup.is_dir():
+                        mod_name = mod_backup.name
+                        
+                        # If we already found this mod in the mods dir (with BA2s), 
+                        # it means it's not fully extracted or something is weird.
+                        # But typically, if it's in backup, it might be extracted.
+                        # However, if it has BA2s in the live folder, we treat it as "Not Extracted" (Normal).
+                        if mod_name in found_mods:
+                            continue
+                            
+                        # This is an extracted mod
+                        # We don't know the size of the BA2s since they are extracted/gone from live.
+                        # We could check the backup size?
+                        # Let's sum up BA2 sizes in the backup.
+                        backup_size = 0
+                        ba2_count = 0
+                        for f in mod_backup.rglob("*.ba2"):
+                            backup_size += f.stat().st_size
+                            ba2_count += 1
+                            
+                        ba2_info = BA2Info(
+                            path=str(mods_path / mod_name), # Path where it SHOULD be
+                            size=backup_size,
+                            mod_name=mod_name,
+                            is_extracted=True,
+                            file_count=ba2_count
+                        )
+                        ba2_files.append(ba2_info)
+                        
+            except Exception as e:
+                self.logger.error(f"Error listing backups in {self.backup_dir}: {e}")
         
         return sorted(ba2_files, key=lambda x: x.mod_name)
     
@@ -887,3 +956,139 @@ class BA2Handler:
             return "No log file found"
         except Exception as e:
             return f"Error reading log: {str(e)}"
+    
+    def extract_mod(self, mod_name: str) -> bool:
+        """
+        Extract a mod's BA2 files to loose files.
+        
+        PROCESS:
+        1. Create backup of mod folder in backup_dir
+        2. Extract all BA2s in the mod folder
+        3. Delete original BA2s
+        
+        Args:
+            mod_name: Name of the mod folder
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        mod_path = Path(self.mo2_dir) / mod_name
+        backup_path = Path(self.backup_dir) / mod_name
+        
+        if not mod_path.exists():
+            self.logger.error(f"Mod path not found: {mod_path}")
+            return False
+            
+        if not self.archive2_path or not os.path.exists(self.archive2_path):
+            self.logger.error("Archive2.exe not found")
+            return False
+            
+        try:
+            # 1. Create Backup
+            if backup_path.exists():
+                self.logger.info(f"Deleting old backup: {backup_path}")
+                shutil.rmtree(backup_path)
+                
+            self.logger.info(f"Creating backup for {mod_name}...")
+            shutil.copytree(mod_path, backup_path)
+            
+            # 2. Extract BA2s
+            ba2_files = list(mod_path.rglob("*.ba2"))
+            if not ba2_files:
+                self.logger.warning(f"No BA2 files found in {mod_name}")
+                return True # Already extracted?
+                
+            extraction_failed = False
+            extracted_ba2s = []
+            
+            for ba2_file in ba2_files:
+                self.logger.info(f"Extracting {ba2_file.name}...")
+                # Extract to the mod folder (same location as BA2)
+                # Note: Archive2 extracts relative to the output folder
+                # If BA2 contains "textures/foo.dds", and we extract to mod_path,
+                # it will be at "mod_path/textures/foo.dds".
+                
+                cmd = [self.archive2_path, "-extract", str(ba2_file), "-output", str(mod_path)]
+                # Use startupinfo to hide console window
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+                result = subprocess.run(cmd, capture_output=True, startupinfo=startupinfo)
+                
+                if result.returncode == 0:
+                    extracted_ba2s.append(ba2_file)
+                else:
+                    self.logger.error(f"Failed to extract {ba2_file.name}: {result.stderr.decode()}")
+                    extraction_failed = True
+                    break
+            
+            # 3. Handle Failure or Success
+            if extraction_failed:
+                self.logger.error("Extraction failed. Rolling back...")
+                # Delete potentially corrupted mod folder
+                if mod_path.exists():
+                    shutil.rmtree(mod_path)
+                # Restore from backup
+                shutil.copytree(backup_path, mod_path)
+                return False
+            else:
+                # Success - Delete BA2s
+                self.logger.info("Extraction successful. Removing BA2 files...")
+                for ba2_file in extracted_ba2s:
+                    os.remove(ba2_file)
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"Error extracting mod {mod_name}: {e}")
+            # Try to rollback if possible
+            try:
+                if backup_path.exists() and mod_path.exists():
+                    shutil.rmtree(mod_path)
+                    shutil.copytree(backup_path, mod_path)
+            except:
+                pass
+            return False
+
+    def restore_mod(self, mod_name: str) -> bool:
+        """
+        Restore a mod from backup (revert to BA2s).
+        
+        PROCESS:
+        1. Check if backup exists
+        2. Delete current mod folder (loose files)
+        3. Restore backup folder
+        
+        Args:
+            mod_name: Name of the mod folder
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        mod_path = Path(self.mo2_dir) / mod_name
+        backup_path = Path(self.backup_dir) / mod_name
+        
+        if not backup_path.exists():
+            self.logger.error(f"Backup not found for {mod_name}")
+            return False
+            
+        try:
+            self.logger.info(f"Restoring {mod_name} from backup...")
+            
+            # 1. Delete current mod folder
+            if mod_path.exists():
+                shutil.rmtree(mod_path)
+                
+            # 2. Restore from backup
+            # We use copytree to keep the backup for future use?
+            # The PowerShell script uses Move-Item: "Move-Item -Path $backupPath -Destination $modPath"
+            # This implies the backup is consumed/removed upon restore.
+            # This makes sense: if we restore, we are back to "Normal" state.
+            # If we extract again, we make a new backup.
+            shutil.move(str(backup_path), str(mod_path))
+            
+            self.logger.info(f"Successfully restored {mod_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error restoring mod {mod_name}: {e}")
+            return False
