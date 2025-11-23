@@ -425,6 +425,7 @@ class BA2Handler:
         - "0 BA2 files in mods" → Check rglob is working
         """
         main_count = 0
+        main_texture_count = 0
         dlc_count = 0
         dlc_texture_count = 0
         cc_count = 0
@@ -470,7 +471,12 @@ class BA2Handler:
                         else:
                             dlc_count += 1
                     elif ba2_name.startswith("fallout4 - "):
-                        main_count += 1
+                        # Distinguish between main and texture Fallout4 BA2s
+                        # Texture BA2s contain " - Texture" in the filename
+                        if " - texture" in ba2_name:
+                            main_texture_count += 1
+                        else:
+                            main_count += 1
                     else:
                         # Creation Store Mods (encrypted, non-extractable)
                         creation_store_count += 1
@@ -523,12 +529,13 @@ class BA2Handler:
             self.logger.warning(f"Mods directory does not exist: {mods_path}")
         
         base_game_count = main_count + dlc_count + cc_count + creation_store_count
-        base_game_texture_count = dlc_texture_count + cc_texture_count
+        base_game_texture_count = main_texture_count + dlc_texture_count + cc_texture_count
         
-        self.logger.info(f"Count summary: Base={base_game_count} (Main={main_count}, DLC={dlc_count}, CC={cc_count}, CreationStore={creation_store_count}), BaseTex={base_game_texture_count} (DLCTex={dlc_texture_count}, CCTex={cc_texture_count}), ModMain={mod_main_count}, ModTextures={mod_texture_count}")
+        self.logger.info(f"Count summary: Base={base_game_count} (Main={main_count}, DLC={dlc_count}, CC={cc_count}, CreationStore={creation_store_count}), BaseTex={base_game_texture_count} (MainTex={main_texture_count}, DLCTex={dlc_texture_count}, CCTex={cc_texture_count}), ModMain={mod_main_count}, ModTextures={mod_texture_count}")
         
         return {
             "main": main_count,
+            "main_textures": main_texture_count,
             "dlc": dlc_count,
             "dlc_textures": dlc_texture_count,
             "creation_club": cc_count,

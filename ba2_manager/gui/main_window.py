@@ -970,7 +970,7 @@ class MainWindow(QMainWindow):
             # Update all the category counts with Main/Texture columns
             # Main Game
             self.safe_set_text('info_main_main', str(counts["main"]))
-            self.safe_set_text('info_main_texture', "0")
+            self.safe_set_text('info_main_texture', str(counts.get("main_textures", 0)))
             
             # DLC
             self.safe_set_text('info_dlc_main', str(counts["dlc"]))
