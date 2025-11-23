@@ -1,53 +1,53 @@
-# BA2 Manager Pro
+# BA2 Manager Pro v1.0.0
 
-A comprehensive Python application for managing Fallout 4 BA2 archive files. This project recreates the functionality of the PowerShell `manage_ba2_pro.ps1` script as a professional GUI application with a cleaner, more extensible codebase.
+A comprehensive Python application for managing Fallout 4 BA2 archive files. This project recreates and enhances the functionality of the PowerShell `manage_ba2_pro.ps1` script as a professional GUI application.
 
 ## Features
 
-### Core Functionality (From PowerShell Script)
-- **Count BA2 Files**: View total BA2 count including base game, mods, and Creation Club content
-- **Manage BA2 Mods**: Extract and restore BA2 files to manage Fallout 4's 255 BA2 file limit
-- **Manage Creation Club Content**: Enable/disable Creation Club (CC) content
-- **View Extraction Logs**: Review detailed operation logs
-- **Configuration Management**: Store and manage paths to Archive2.exe, MO2, and Fallout 4 installations
+### Core Functionality
+- **Count BA2 Files**: View total BA2 count including base game, mods, and Creation Club content.
+- **Manage BA2 Mods**: Extract and restore BA2 files to manage Fallout 4's 255 BA2 file limit.
+- **Nexus Mod Links**: Automatically detects Nexus Mod IDs from `meta.ini` and provides direct links to mod pages.
+- **Manage Creation Club Content**: Enable/disable Creation Club (CC) content with a checkbox interface.
+- **View Extraction Logs**: Review detailed operation logs.
+- **Configuration Management**: Store and manage paths to Archive2.exe, MO2, and Fallout 4 installations.
 
 ### Advantages Over PowerShell Script
-- Cross-platform GUI (Windows, macOS, Linux)
-- Persistent configuration storage
-- Real-time progress tracking
-- Standalone executable (no Python installation required for end users)
-- Better error handling and user feedback
-- Extensible architecture for future improvements
+- **Cross-platform GUI**: Modern PyQt6 interface with sortable tables and direct links.
+- **Persistent Configuration**: Settings are saved automatically.
+- **Real-time Progress**: Visual feedback during extraction/restoration.
+- **Standalone Executable**: No Python installation required for end users.
+- **Safety Features**: Backup system for extracted mods and validation checks.
 
-## Installation & Setup
+## Installation & Usage
 
-### Development Setup
+### For End Users (Standalone Executable)
+1. Download the latest release (`ba2-manager.exe`) from the Releases page.
+2. Place the executable anywhere (e.g., inside your MO2 folder).
+3. Run `ba2-manager.exe`.
+4. On first run, configure your paths in the **Settings** tab:
+   - **MO2 Mods Directory**: Where your mods are installed.
+   - **Archive2.exe Path**: Required for extraction (usually in `Fallout 4/Tools/Archive2`).
+   - **Fallout 4 Path**: Your game installation folder.
+
+### For Developers (Python Setup)
 
 ```bash
-# Clone or navigate to the project
-cd "BA2 Manager"
+# Clone the repository
+git clone https://github.com/jturnley/BA2Manager.git
+cd BA2Manager
 
-# Create virtual environment (if not already done)
+# Create virtual environment
 python -m venv .venv
 
 # Activate virtual environment
-# On Windows:
+# Windows:
 .venv\Scripts\activate
-# On macOS/Linux:
+# macOS/Linux:
 source .venv/bin/activate
 
-# Install in development mode with dependencies
-pip install -e ".[dev]"
-```
-
-### Running the Application
-
-```bash
-# Run directly
-python -m ba2_manager.main
-
-# Or use the module
-ba2-manager
+# Install dependencies
+pip install -e .
 ```
 
 ## Project Structure
@@ -157,9 +157,10 @@ This application recreates all major functions from `manage_ba2_pro.ps1`:
 |---|---|---|
 | `Count-BA2Files` | `BA2Handler.count_ba2_files()` | ✅ Implemented |
 | `Manage-BA2Mods` | `BA2Handler.extract/repack` | ✅ Implemented |
-| `Manage-CreationClub` | `BA2Handler.enable/disable_cc_content()` | ✅ Skeleton |
+| `Manage-CreationClub` | `BA2Handler.enable/disable_cc_content()` | ✅ Implemented |
 | `View-Log` | `BA2Handler.get_log_entries()` | ✅ Implemented |
 | `Show-Menu` | `MainWindow` tabs | ✅ Implemented |
+| `Get-NexusLink` | `BA2Handler._get_nexus_url()` | ✅ Implemented |
 
 ## Configuration
 
