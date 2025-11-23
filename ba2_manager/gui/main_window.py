@@ -268,7 +268,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(info_btn)
         
         # Manage Mod BA2s button
-        manage_btn = QPushButton("Manage Mod BA2s")
+        manage_btn = QPushButton("Extract/Restore Mod BA2s")
         manage_btn.setMinimumWidth(150)
         manage_btn.setMinimumHeight(50)
         manage_btn.clicked.connect(self.show_manage_mods)
@@ -668,13 +668,6 @@ class MainWindow(QMainWindow):
         button_layout.addWidget(apply_btn)
         
         manage_layout.addLayout(button_layout)
-        
-        # Progress
-        progress_label = QLabel("Progress:")
-        manage_layout.addWidget(progress_label)
-        
-        self.mod_progress = QProgressBar()
-        manage_layout.addWidget(self.mod_progress)
         
         # Status
         status_label = QLabel("Status:")
