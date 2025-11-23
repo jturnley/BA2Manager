@@ -36,6 +36,7 @@ import re
 import subprocess
 import logging
 import shutil
+import json
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
@@ -327,6 +328,9 @@ class BA2Handler:
         self.failed_extractions = []
         # Initialize vanilla BA2 names with hardcoded list as fallback
         self.vanilla_ba2_names = set(name.lower() for name in self.VANILLA_BA2S)
+        # Initialize mod tracking for partial extraction detection
+        self.modlist_file = Path(__file__).parent.parent / "ba2_manager_modlist.json"
+        self.mod_tracking = self._load_mod_tracking()
         
         # Setup logging
         import sys
@@ -369,6 +373,60 @@ class BA2Handler:
             print(f"Warning: Could not set up console logging: {e}")
         self.logger.info(f"BA2Handler initialized - mods_dir={self.mo2_dir}, log_file={self.log_file}, debug_logging={debug_logging}")
     
+    def _load_mod_tracking(self) -> dict:
+        """Load mod tracking data from ba2_manager_modlist.json file."""
+        try:
+            if self.modlist_file.exists():
+                with open(self.modlist_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get("mods", {})
+        except Exception as e:
+            self.logger.warning(f"Could not load mod tracking file: {e}")
+        return {}
+    
+    def _save_mod_tracking(self):
+        """Save mod tracking data to ba2_manager_modlist.json file."""
+        try:
+            data = {
+                "version": "1.0",
+                "description": "Tracks BA2 extraction states for mods",
+                "mods": self.mod_tracking
+            }
+            with open(self.modlist_file, 'w') as f:
+                json.dump(data, f, indent=2)
+            self.logger.debug(f"Saved mod tracking to {self.modlist_file}")
+        except Exception as e:
+            self.logger.warning(f"Could not save mod tracking file: {e}")
+    
+    def _update_mod_tracking(self, current_mods: dict):
+        """Update tracking with current mod states and clean up uninstalled mods."""
+        from datetime import datetime
+        
+        # Update tracking for mods we currently see
+        for mod_name, mod_data in current_mods.items():
+            if mod_name not in self.mod_tracking:
+                self.mod_tracking[mod_name] = {
+                    "main_extracted": mod_data.get('main_extracted', False),
+                    "texture_extracted": mod_data.get('texture_extracted', False),
+                    "last_seen": datetime.now().isoformat()
+                }
+            else:
+                # Update extraction states based on current detection
+                self.mod_tracking[mod_name]['main_extracted'] = mod_data.get('main_extracted', False)
+                self.mod_tracking[mod_name]['texture_extracted'] = mod_data.get('texture_extracted', False)
+                self.mod_tracking[mod_name]['last_seen'] = datetime.now().isoformat()
+        
+        # Detect uninstalled mods by checking if they're in tracking but not in current_mods
+        # These might have orphaned backups that should be cleaned up
+        uninstalled_mods = set(self.mod_tracking.keys()) - set(current_mods.keys())
+        if uninstalled_mods:
+            self.logger.info(f"Detected uninstalled mods: {uninstalled_mods}. Orphaned backups may exist.")
+            # In future: add cleanup logic here
+        
+        # Save updated tracking
+        self._save_mod_tracking()
+    
+
     def count_ba2_files(self, fo4_path: str) -> Dict:
         """
         Count BA2 files across all sources and categorize them.
@@ -844,6 +902,9 @@ class BA2Handler:
                     has_backup=data['has_backup'],
                     nexus_url=data['nexus_url']
                 ))
+        
+        # Update tracking file with current mod states
+        self._update_mod_tracking(ba2_mods)
         
         return sorted(result, key=lambda x: x.mod_name)
     
