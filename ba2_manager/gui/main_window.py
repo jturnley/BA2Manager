@@ -621,12 +621,16 @@ class MainWindow(QMainWindow):
         
         # Warning messages at bottom
         warning_layout = QVBoxLayout()
+        warning_layout.setSpacing(4)
         warning1 = QLabel("⚠ Exceeding 255 Main BA2 files will cause the game to crash on startup.")
         warning1.setStyleSheet("color: #FF0000; font-weight: bold; margin-top: 10px;")
+        warning1.setAlignment(Qt.AlignmentFlag.AlignLeft)
         warning2 = QLabel("⚠ Exceeding 254 Texture BA2 files will cause graphical corruption in your game.")
         warning2.setStyleSheet("color: #FF0000; font-weight: bold;")
+        warning2.setAlignment(Qt.AlignmentFlag.AlignLeft)
         warning_layout.addWidget(warning1)
         warning_layout.addWidget(warning2)
+        warning_layout.setContentsMargins(0, 10, 0, 0)
         group_layout.addLayout(warning_layout)
         
         info_group.setLayout(group_layout)
