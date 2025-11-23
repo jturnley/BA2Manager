@@ -12,7 +12,7 @@ from ba2_manager.core.ba2_handler import BA2Handler
 handler = BA2Handler(
     archive2_path="C:\\Path\\To\\Archive2.exe",  # Optional
     mo2_dir="C:\\MO2\\mods",                     # Optional, default: "mods"
-    log_file="BA2_Extract.log"                   # Optional
+    log_file="ba2-manager.log"                   # Optional
 )
 ```
 
@@ -332,7 +332,7 @@ except Exception as e:
 All operations are logged to file:
 
 ```python
-# Logs go to BA2_Extract.log (or configured path)
+# Logs go to ba2-manager.log (or configured path)
 # Format: YYYY-MM-DD HH:MM:SS,mmm - LEVEL - MESSAGE
 
 # View logs programmatically
@@ -351,7 +351,7 @@ print(logs)
   "archive2_path": "",
   "mo2_mods_dir": "./mods",
   "fo4_path": "",
-  "log_file": "BA2_Extract.log",
+  "log_file": "ba2-manager.log",
   "backup_dir": "./mod_backups"
 }
 ```

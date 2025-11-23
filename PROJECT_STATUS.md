@@ -246,7 +246,7 @@ pyinstaller ba2_manager.spec
   "archive2_path": "",
   "mo2_mods_dir": "./mods",
   "fo4_path": "",
-  "log_file": "BA2_Extract.log",
+  "log_file": "ba2-manager.log",
   "backup_dir": "./mod_backups"
 }
 ```
@@ -262,7 +262,7 @@ pyinstaller ba2_manager.spec
 ## Logging System
 
 ### Log File
-**Location**: `BA2_Extract.log` (configurable)
+**Location**: `ba2-manager.log` (configurable)
 
 **Captures**:
 - All extraction operations

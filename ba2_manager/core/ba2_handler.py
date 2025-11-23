@@ -85,7 +85,7 @@ class BA2Handler:
     - log_file: Path to log file for operation tracking
     
     STATE TRACKING:
-    - logger: FileHandler logging all operations to BA2_Extract.log
+    - logger: FileHandler logging all operations to ba2-manager.log
     - failed_extractions: List of BA2s that failed to extract (for error reporting)
     
     CONSTANTS:
@@ -324,7 +324,7 @@ class BA2Handler:
         self.archive2_path = archive2_path
         self.mo2_dir = mo2_dir or "mods"
         self.backup_dir = backup_dir or "mod_backups"
-        self.log_file = log_file or "BA2_Extract.log"
+        self.log_file = log_file or "ba2-manager.log"
         self.failed_extractions = []
         # Initialize vanilla BA2 names with hardcoded list as fallback
         self.vanilla_ba2_names = set(name.lower() for name in self.VANILLA_BA2S)
@@ -349,20 +349,20 @@ class BA2Handler:
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
         # Always log to working directory
         try:
-            handler1 = logging.FileHandler("BA2_Extract.log", mode='a')
+            handler1 = logging.FileHandler("ba2-manager.log", mode='a')
             handler1.setLevel(logging.DEBUG)
             handler1.setFormatter(formatter)
             self.logger.addHandler(handler1)
         except Exception as e:
-            print(f"Warning: Could not set up logging to BA2_Extract.log: {e}")
-        # Always log to /dist/BA2_Extract.log
+            print(f"Warning: Could not set up logging to ba2-manager.log: {e}")
+        # Always log to /dist/ba2-manager.log
         try:
-            handler2 = logging.FileHandler("dist/BA2_Extract.log", mode='a')
+            handler2 = logging.FileHandler("dist/ba2-manager.log", mode='a')
             handler2.setLevel(logging.DEBUG)
             handler2.setFormatter(formatter)
             self.logger.addHandler(handler2)
         except Exception as e:
-            print(f"Warning: Could not set up logging to dist/BA2_Extract.log: {e}")
+            print(f"Warning: Could not set up logging to dist/ba2-manager.log: {e}")
         # Always log to console
         try:
             console_handler = logging.StreamHandler(sys.stdout)
@@ -470,14 +470,14 @@ class BA2Handler:
             - limit: Hard limit of 501 (Fallout 4's safety threshold)
         
         LOGGING:
-        Each step logs to BA2_Extract.log for debugging:
+        Each step logs to ba2-manager.log for debugging:
         - Paths being scanned
         - Active CC plugins found
         - Each BA2 file categorized with explanation
         - Final counts
         
         TROUBLESHOOTING:
-        If counts look wrong, check BA2_Extract.log for:
+        If counts look wrong, check ba2-manager.log for:
         - "Mods path exists: False" → mo2_dir not configured
         - "Fallout4.ccc not found" → fo4_path incorrect
         - "0 BA2 files in mods" → Check rglob is working
