@@ -543,28 +543,93 @@ class MainWindow(QMainWindow):
         
         # Info group with detailed breakdown
         info_group = QGroupBox("BA2 File Count Summary")
-        form_layout = QFormLayout()
+        group_layout = QVBoxLayout()
         
-        # Base Game Categories
-        self.info_main = QLabel("--")
-        self.info_dlc = QLabel("--")
-        self.info_cc = QLabel("--")
-        self.info_creation_store = QLabel("--")
-        self.info_mods = QLabel("--")
+        # Header row for columns
+        header_layout = QHBoxLayout()
+        header_layout.addWidget(QLabel("Category"), 2)
+        header_layout.addWidget(QLabel("Main"), 1)
+        header_layout.addWidget(QLabel("Texture"), 1)
+        group_layout.addLayout(header_layout)
+        
+        # Separator
+        separator = QLabel("─" * 50)
+        separator.setStyleSheet("color: gray;")
+        group_layout.addWidget(separator)
+        
+        # Base Game Categories with Main/Texture columns
+        self.info_main_main = QLabel("--")
+        self.info_main_texture = QLabel("--")
+        main_layout = QHBoxLayout()
+        main_layout.addWidget(QLabel("Main Game Files:"), 2)
+        main_layout.addWidget(self.info_main_main, 1)
+        main_layout.addWidget(self.info_main_texture, 1)
+        group_layout.addLayout(main_layout)
+        
+        self.info_dlc_main = QLabel("--")
+        self.info_dlc_texture = QLabel("--")
+        dlc_layout = QHBoxLayout()
+        dlc_layout.addWidget(QLabel("DLC Files:"), 2)
+        dlc_layout.addWidget(self.info_dlc_main, 1)
+        dlc_layout.addWidget(self.info_dlc_texture, 1)
+        group_layout.addLayout(dlc_layout)
+        
+        self.info_cc_main = QLabel("--")
+        self.info_cc_texture = QLabel("--")
+        cc_layout = QHBoxLayout()
+        cc_layout.addWidget(QLabel("Creation Club (CC):"), 2)
+        cc_layout.addWidget(self.info_cc_main, 1)
+        cc_layout.addWidget(self.info_cc_texture, 1)
+        group_layout.addLayout(cc_layout)
+        
+        self.info_creation_store_main = QLabel("--")
+        self.info_creation_store_texture = QLabel("--")
+        cs_layout = QHBoxLayout()
+        cs_layout.addWidget(QLabel("Creation Store Mods:"), 2)
+        cs_layout.addWidget(self.info_creation_store_main, 1)
+        cs_layout.addWidget(self.info_creation_store_texture, 1)
+        group_layout.addLayout(cs_layout)
+        
+        self.info_mods_main = QLabel("--")
+        self.info_mods_texture = QLabel("--")
+        mods_layout = QHBoxLayout()
+        mods_layout.addWidget(QLabel("Mod BA2s (MO2):"), 2)
+        mods_layout.addWidget(self.info_mods_main, 1)
+        mods_layout.addWidget(self.info_mods_texture, 1)
+        group_layout.addLayout(mods_layout)
+        
         self.info_replacements = QLabel("--")
+        replacements_layout = QHBoxLayout()
+        replacements_layout.addWidget(QLabel("Vanilla Replacements:"), 2)
+        replacements_layout.addWidget(self.info_replacements, 1)
+        replacements_layout.addWidget(QLabel(""), 1)
+        group_layout.addLayout(replacements_layout)
+        
+        # Separator
+        separator2 = QLabel("─" * 50)
+        separator2.setStyleSheet("color: gray;")
+        group_layout.addWidget(separator2)
+        
+        # Total row
         self.info_total = QLabel("--")
+        total_layout = QHBoxLayout()
+        total_label = QLabel("TOTAL BA2 FILES:")
+        total_label.setStyleSheet("font-weight: bold;")
+        total_layout.addWidget(total_label, 2)
+        total_layout.addWidget(self.info_total, 2)
+        group_layout.addLayout(total_layout)
         
-        form_layout.addRow("Main Game Files:", self.info_main)
-        form_layout.addRow("DLC Files:", self.info_dlc)
-        form_layout.addRow("Creation Club (CC):", self.info_cc)
-        form_layout.addRow("Creation Store Mods:", self.info_creation_store)
-        form_layout.addRow("Mod BA2s (MO2):", self.info_mods)
-        form_layout.addRow("Vanilla Replacements:", self.info_replacements)
+        # Warning messages at bottom
+        warning_layout = QVBoxLayout()
+        warning1 = QLabel("⚠ Exceeding 255 Main BA2 files will cause the game to crash on startup.")
+        warning1.setStyleSheet("color: #FF0000; font-weight: bold; margin-top: 10px;")
+        warning2 = QLabel("⚠ Exceeding 254 Texture BA2 files will cause graphical corruption in your game.")
+        warning2.setStyleSheet("color: #FF0000; font-weight: bold;")
+        warning_layout.addWidget(warning1)
+        warning_layout.addWidget(warning2)
+        group_layout.addLayout(warning_layout)
         
-        form_layout.addRow("", QLabel(""))  # Spacer
-        form_layout.addRow("TOTAL BA2 FILES:", self.info_total)
-        
-        info_group.setLayout(form_layout)
+        info_group.setLayout(group_layout)
         info_layout.addWidget(info_group)
         
         # Refresh button
@@ -577,16 +642,6 @@ class MainWindow(QMainWindow):
         self.info_status.setReadOnly(True)
         self.info_status.setMaximumHeight(60)
         info_layout.addWidget(self.info_status)
-        
-        # Warning messages
-        warning_layout = QVBoxLayout()
-        warning1 = QLabel("⚠ Exceeding 255 Main BA2 files will cause the game to crash on startup.")
-        warning1.setStyleSheet("color: #FF0000; font-weight: bold;")
-        warning2 = QLabel("⚠ Exceeding 254 Texture BA2 files will cause graphical corruption in your game.")
-        warning2.setStyleSheet("color: #FF0000; font-weight: bold;")
-        warning_layout.addWidget(warning1)
-        warning_layout.addWidget(warning2)
-        info_layout.addLayout(warning_layout)
         
         info_layout.addStretch()
         info_widget.setLayout(info_layout)
@@ -898,17 +953,34 @@ class MainWindow(QMainWindow):
             self.update_ba2_bar_style_main(main_total, 255)
             self.update_ba2_bar_style_texture(texture_total, 254)
             
-            # Update all the category counts (with safety checks)
-            self.safe_set_text('info_main', str(counts["main"]))
-            self.safe_set_text('info_dlc', str(counts["dlc"]))
-            self.safe_set_text('info_cc', str(counts["creation_club"]))
-            self.safe_set_text('info_creation_store', str(counts["creation_store"]))
-            self.safe_set_text('info_mods', str(counts["mod_main"]))
+            # Update all the category counts with Main/Texture columns
+            # Main Game
+            self.safe_set_text('info_main_main', str(counts["main"]))
+            self.safe_set_text('info_main_texture', "0")
+            
+            # DLC
+            self.safe_set_text('info_dlc_main', str(counts["dlc"]))
+            self.safe_set_text('info_dlc_texture', str(counts.get("dlc_textures", 0)))
+            
+            # Creation Club
+            self.safe_set_text('info_cc_main', str(counts["creation_club"]))
+            self.safe_set_text('info_cc_texture', str(counts.get("creation_club_textures", 0)))
+            
+            # Creation Store Mods
+            self.safe_set_text('info_creation_store_main', str(counts["creation_store"]))
+            self.safe_set_text('info_creation_store_texture', str(0))
+            
+            # Mod BA2s
+            self.safe_set_text('info_mods_main', str(counts["mod_main"]))
+            self.safe_set_text('info_mods_texture', str(counts.get("mod_textures", 0)))
+            
+            # Replacements (just show the count, no texture split needed)
             self.safe_set_text('info_replacements', f"{counts['replacements']} (not counted)")
             
+            # Total
             main_str = f"{main_total}/255"
             texture_str = f"{texture_total}/254"
-            self.safe_set_text('info_total', f"Main: {main_str}\nTextures: {texture_str}")
+            self.safe_set_text('info_total', f"Main: {main_str} | Textures: {texture_str}")
             
             # Color code based on limits exceeded
             if main_total > 255 or texture_total > 254:

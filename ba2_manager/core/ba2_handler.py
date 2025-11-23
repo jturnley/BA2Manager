@@ -526,7 +526,9 @@ class BA2Handler:
         return {
             "main": main_count,
             "dlc": dlc_count,
+            "dlc_textures": dlc_texture_count,
             "creation_club": cc_count,
+            "creation_club_textures": cc_texture_count,
             "creation_store": creation_store_count,
             "base_game": base_game_count,
             "base_game_textures": base_game_texture_count,
