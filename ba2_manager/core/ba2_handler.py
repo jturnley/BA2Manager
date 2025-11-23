@@ -51,6 +51,7 @@ class BA2Info:
         path: Full file path to the BA2 file
         size: File size in bytes
         mod_name: Display name of the mod (directory name or extracted from filename)
+        ba2_type: Type of BA2 - "main", "textures", "dlc", "cc", or "creation_store"
         is_extracted: Boolean flag (for future: whether this BA2 is currently extracted)
         file_count: Number of files contained in this BA2 (for future use)
         nexus_url: Optional URL to the mod's Nexus page
@@ -60,6 +61,7 @@ class BA2Info:
     path: str
     size: int
     mod_name: str
+    ba2_type: str = "main"  # main, textures, dlc, cc, creation_store
     is_extracted: bool = False
     file_count: int = 0
     has_backup: bool = False
@@ -464,6 +466,14 @@ class BA2Handler:
         mod_count = 0
         replacement_count = 0
         
+        # Get list of active mods from modlist.txt
+        active_mods = self._get_active_mods()
+        
+        # Count mod BA2s separately for MAIN and TEXTURES
+        mod_main_count = 0
+        mod_texture_count = 0
+        replacement_count = 0
+        
         mods_path = Path(self.mo2_dir)
         self.logger.info(f"Scanning mods path: {mods_path}")
         self.logger.info(f"Mods path exists: {mods_path.exists()}")
@@ -474,21 +484,33 @@ class BA2Handler:
             
             for ba2_file in mod_ba2s:
                 ba2_name = ba2_file.name.lower()
+                mod_folder_name = ba2_file.parent.name.lower()
+                
+                # Only count BA2s from active mods (if active_mods is not empty, check it; if empty, count all)
+                if active_mods and mod_folder_name not in active_mods:
+                    self.logger.debug(f"  Skipping BA2 from inactive mod: {ba2_file.relative_to(mods_path)}")
+                    continue
+                
                 self.logger.info(f"  Checking mod BA2: {ba2_file.relative_to(mods_path)}")
                 
                 if ba2_name in self.vanilla_ba2_names:
                     replacement_count += 1
-                    self.logger.info(f"    -> Vanilla replacement")
+                    self.logger.info(f"    -> Vanilla replacement (active)")
                 else:
-                    mod_count += 1
-                    self.logger.info(f"    -> New mod BA2")
+                    # Categorize as MAIN or TEXTURES based on filename pattern
+                    if ba2_name.endswith(" - textures.ba2"):
+                        mod_texture_count += 1
+                        self.logger.info(f"    -> Texture BA2 (active)")
+                    else:
+                        # Treat as main/generic BA2
+                        mod_main_count += 1
+                        self.logger.info(f"    -> Main BA2 (active)")
         else:
             self.logger.warning(f"Mods directory does not exist: {mods_path}")
         
         base_game_count = main_count + dlc_count + cc_count + creation_store_count
-        total = base_game_count + mod_count
         
-        self.logger.info(f"Count summary: Main={main_count}, DLC={dlc_count}, CC={cc_count}, CreationStore={creation_store_count}, Mods={mod_count}, Total={total}")
+        self.logger.info(f"Count summary: Base={base_game_count} (Main={main_count}, DLC={dlc_count}, CC={cc_count}, CreationStore={creation_store_count}), ModMain={mod_main_count}, ModTextures={mod_texture_count}")
         
         return {
             "main": main_count,
@@ -496,12 +518,62 @@ class BA2Handler:
             "creation_club": cc_count,
             "creation_store": creation_store_count,
             "base_game": base_game_count,
-            "mods": mod_count,
+            "mod_main": mod_main_count,
+            "mod_textures": mod_texture_count,
             "replacements": replacement_count,
             "vanilla_ba2_names": self.vanilla_ba2_names,
-            "total": total,
-            "limit": 255
+            "main_total": base_game_count + mod_main_count,
+            "texture_total": mod_texture_count,
+            "limit_main": 255,
+            "limit_textures": 254
         }
+    
+    def _get_active_mods(self, mo2_root: Optional[Path] = None) -> set:
+        """Read active mods from modlist.txt in MO2 profile.
+        
+        Args:
+            mo2_root: Optional path to MO2 root directory. If provided, will look for
+                     mo2_root/profiles/Default/modlist.txt. Otherwise derives from mo2_dir.
+        
+        Returns:
+            Set of active mod folder names (case-insensitive)
+        """
+        active_mods = set()
+        
+        # Determine modlist path
+        if mo2_root:
+            modlist_path = mo2_root / "profiles" / "Default" / "modlist.txt"
+        else:
+            # Try to infer mo2_root from mo2_dir
+            mo2_path = Path(self.mo2_dir)
+            if mo2_path.name == "mods":
+                mo2_root = mo2_path.parent
+                modlist_path = mo2_root / "profiles" / "Default" / "modlist.txt"
+            else:
+                # mo2_dir is directly in MO2 root or we can't determine it
+                modlist_path = mo2_path.parent / "profiles" / "Default" / "modlist.txt"
+        
+        if not modlist_path.exists():
+            self.logger.debug(f"modlist.txt not found at {modlist_path}, counting all mods as active")
+            return active_mods
+        
+        try:
+            with open(modlist_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip comments and empty lines
+                    if not line or line.startswith('#'):
+                        continue
+                    # Active mods are prefixed with *
+                    if line.startswith('*'):
+                        mod_name = line[1:].strip()
+                        active_mods.add(mod_name.lower())
+                        self.logger.debug(f"Active mod found: {mod_name}")
+            self.logger.info(f"Found {len(active_mods)} active mods in modlist.txt")
+        except Exception as e:
+            self.logger.warning(f"Could not read modlist.txt: {e}")
+        
+        return active_mods
     
     def _get_active_cc_plugins(self, fo4_path: str) -> set:
         """Read active CC plugins from Fallout4.ccc
@@ -626,6 +698,9 @@ class BA2Handler:
         mods_path = Path(self.mo2_dir)
         backup_path = Path(self.backup_dir)
         
+        # Get list of active mods from modlist.txt
+        active_mods = self._get_active_mods()
+        
         # Dictionary to aggregate mod info
         # Key: mod_name, Value: {path, size, file_count, replacement_count, has_backup}
         mods_data = {}
@@ -636,6 +711,11 @@ class BA2Handler:
                 for ba2_file in mods_path.rglob("*.ba2"):
                     try:
                         mod_name = ba2_file.parent.name
+                        
+                        # Skip inactive mods
+                        if active_mods and mod_name.lower() not in active_mods:
+                            self.logger.debug(f"Skipping BA2 from inactive mod: {mod_name}")
+                            continue
                         
                         if mod_name not in mods_data:
                             mods_data[mod_name] = {
