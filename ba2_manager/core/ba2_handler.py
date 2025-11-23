@@ -53,6 +53,7 @@ class BA2Info:
         mod_name: Display name of the mod (directory name or extracted from filename)
         is_extracted: Boolean flag (for future: whether this BA2 is currently extracted)
         file_count: Number of files contained in this BA2 (for future use)
+        nexus_url: Optional URL to the mod's Nexus page
     
     Used by list_ba2_mods() to return mod BA2 information to the GUI.
     """
@@ -62,6 +63,7 @@ class BA2Info:
     is_extracted: bool = False
     file_count: int = 0
     has_backup: bool = False
+    nexus_url: Optional[str] = None
 
 
 class BA2Handler:
@@ -584,6 +586,32 @@ class BA2Handler:
 
         return sorted(packages, key=lambda x: x[1])  # Sort by display name
     
+    def _get_nexus_url(self, mod_path: Path) -> Optional[str]:
+        """
+        Extract Nexus URL from meta.ini file in the mod directory.
+        """
+        meta_file = mod_path / "meta.ini"
+        if not meta_file.exists():
+            return None
+            
+        try:
+            # Simple INI parsing
+            content = meta_file.read_text(encoding='utf-8', errors='ignore')
+            
+            # Extract required fields
+            mod_id_match = re.search(r'^modid=(\d+)', content, re.MULTILINE)
+            game_name_match = re.search(r'^gameName=(.+)', content, re.MULTILINE)
+            
+            if mod_id_match and game_name_match:
+                mod_id = mod_id_match.group(1)
+                game_name = game_name_match.group(1).lower()
+                return f"https://www.nexusmods.com/{game_name}/mods/{mod_id}"
+                
+        except Exception as e:
+            self.logger.warning(f"Error parsing meta.ini in {mod_path}: {e}")
+            
+        return None
+
     def list_ba2_mods(self) -> List[BA2Info]:
         """
         List all BA2 mod files and extracted mods.
@@ -651,7 +679,8 @@ class BA2Handler:
                 mod_name=mod_name,
                 is_extracted=False,
                 file_count=data['file_count'],
-                has_backup=data['has_backup']
+                has_backup=data['has_backup'],
+                nexus_url=self._get_nexus_url(Path(data['path']))
             ))
             
         # 3. Scan for extracted mods in backup directory
@@ -682,7 +711,8 @@ class BA2Handler:
                             mod_name=mod_name,
                             is_extracted=True,
                             file_count=ba2_count,
-                            has_backup=True
+                            has_backup=True,
+                            nexus_url=self._get_nexus_url(mods_path / mod_name)
                         ))
                         
             except Exception as e:

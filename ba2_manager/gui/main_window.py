@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QLabel, QTextEdit, QMessageBox, QListWidget, QListWidgetItem,
     QProgressBar, QGroupBox, QFormLayout, QFileDialog, QDialog,
-    QDialogButtonBox, QLineEdit, QCheckBox, QApplication
+    QDialogButtonBox, QLineEdit, QCheckBox, QApplication,
+    QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont, QColor, QIcon
@@ -501,11 +502,18 @@ class MainWindow(QMainWindow):
         
         # === MOD LIST ===
         # The list displays all BA2 mods from the MO2 mods directory with checkboxes
-        # Each item is a QListWidgetItem with ItemIsUserCheckable flag enabled
+        # Each item is a QTableWidgetItem with ItemIsUserCheckable flag enabled
         list_label = QLabel("Available BA2 Mods:")
         manage_layout.addWidget(list_label)
         
-        self.mod_list = QListWidget()
+        self.mod_list = QTableWidget()
+        self.mod_list.setColumnCount(2)
+        self.mod_list.setHorizontalHeaderLabels(["Mod Name", "Nexus Link"])
+        self.mod_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.mod_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.mod_list.verticalHeader().setVisible(False)
+        self.mod_list.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        
         self.mod_extracted_status = {}  # {index: bool} - tracks current state of each mod
         manage_layout.addWidget(self.mod_list)
         
@@ -813,23 +821,10 @@ class MainWindow(QMainWindow):
     
     def load_mod_list(self):
         """
-        Load and populate the mod BA2 list with checkboxes.
-        
-        Called when entering the Manage Mods view to populate the list from disk.
-        
-        STEPS:
-        1. Query BA2Handler for all mod BA2s in MO2 mods directory
-        2. For each mod, create a QListWidgetItem with:
-           - Display text: "ModName (size MB)"
-           - Checkbox: ItemIsUserCheckable flag enabled
-           - Default state: UNCHECKED (mods are in their normal BA2 state)
-           - Stored data: mod_name (accessible via UserRole)
-        3. Initialize tracking: mod_extracted_status[index] = False
-           This tracks the CURRENT state as "not extracted" (normal BA2 state)
-        4. Update status label with count
+        Load and populate the mod list.
         
         IMPLEMENTATION NOTES:
-        - QListWidgetItem.setCheckState() sets initial checkbox state
+        - QTableWidgetItem with CheckState sets initial checkbox state
         - Qt.ItemFlag.ItemIsUserCheckable enables checkbox interaction
         - UserRole data stores the actual mod name for reference
         - Index maps directly to mod_extracted_status dict
@@ -837,16 +832,18 @@ class MainWindow(QMainWindow):
         """
         try:
             mods = self.ba2_handler.list_ba2_mods()
-            self.mod_list.clear()
+            self.mod_list.setRowCount(0)  # Clear table
             self.mod_extracted_status = {}
             
             for i, mod in enumerate(mods):
+                self.mod_list.insertRow(i)
+                
                 # === FORMAT DISPLAY TEXT ===
                 size_mb = mod.size / 1024 / 1024
                 item_text = f"{mod.mod_name} ({size_mb:.1f} MB)"
                 
-                # === CREATE LIST ITEM WITH CHECKBOX ===
-                item = QListWidgetItem(item_text)
+                # === CREATE MOD NAME ITEM WITH CHECKBOX (Column 0) ===
+                item = QTableWidgetItem(item_text)
                 item.setData(Qt.ItemDataRole.UserRole, mod.mod_name)  # Store mod name for reference
                 
                 # Set state based on whether mod is already extracted
@@ -862,14 +859,21 @@ class MainWindow(QMainWindow):
                     if mod.has_backup:
                         # Backup exists but BA2s are present -> Not fully extracted or restored
                         item.setToolTip("Status: Not Extracted (BA2s present). Backup exists.")
-                        # Optional: Use a different color to indicate this state?
-                        # item.setForeground(QColor("#FFC107")) # Amber/Yellow
                     else:
                         item.setToolTip("Status: Not Extracted (BA2s present)")
                     
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)  # Enable checkbox
-                self.mod_list.addItem(item)
-            
+                self.mod_list.setItem(i, 0, item)
+                
+                # === CREATE NEXUS LINK ITEM (Column 1) ===
+                if mod.nexus_url:
+                    link_label = QLabel(f'<a href="{mod.nexus_url}">Nexus Page</a>')
+                    link_label.setOpenExternalLinks(True)
+                    link_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                    self.mod_list.setCellWidget(i, 1, link_label)
+                else:
+                    self.mod_list.setItem(i, 1, QTableWidgetItem(""))
+
             # === UPDATE STATUS ===
             if not mods:
                 self.mod_status.setText("No BA2 mods found in MO2 directory")
@@ -938,8 +942,8 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
         
         try:
-            for i in range(self.mod_list.count()):
-                item = self.mod_list.item(i)
+            for i in range(self.mod_list.rowCount()):
+                item = self.mod_list.item(i, 0)
                 mod_name = item.data(Qt.ItemDataRole.UserRole)
                 
                 if not mod_name:
@@ -1018,7 +1022,7 @@ class MainWindow(QMainWindow):
         NOTE: This is a temporary state. After extraction completes,
         mark_mod_extracted() is called to turn it green.
         """
-        item = self.mod_list.item(index)
+        item = self.mod_list.item(index, 0)
         if item is None:
             return
         
@@ -1040,7 +1044,7 @@ class MainWindow(QMainWindow):
         
         NOTE: This is the final state after extraction completes.
         """
-        item = self.mod_list.item(index)
+        item = self.mod_list.item(index, 0)
         if item is None:
             return
         
@@ -1068,7 +1072,7 @@ class MainWindow(QMainWindow):
         NOTE: This is a UI/state update only. The actual BA2 file decompression
         would be handled by the backend Archive2.exe integration (future feature).
         """
-        item = self.mod_list.item(index)
+        item = self.mod_list.item(index, 0)
         if item is None:
             return
         
@@ -1412,8 +1416,8 @@ class MainWindow(QMainWindow):
         
         try:
             # Iterate through all items
-            for i in range(self.mod_list.count()):
-                item = self.mod_list.item(i)
+            for i in range(self.mod_list.rowCount()):
+                item = self.mod_list.item(i, 0)
                 mod_name = item.data(Qt.ItemDataRole.UserRole)
                 
                 # Check if currently extracted
