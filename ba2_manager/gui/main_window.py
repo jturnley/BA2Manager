@@ -982,7 +982,7 @@ class MainWindow(QMainWindow):
             
             # Creation Store Mods
             self.safe_set_text('info_creation_store_main', str(counts["creation_store"]))
-            self.safe_set_text('info_creation_store_texture', str(0))
+            self.safe_set_text('info_creation_store_texture', str(counts.get("creation_store_textures", 0)))
             
             # Mod BA2s
             self.safe_set_text('info_mods_main', str(counts["mod_main"]))
