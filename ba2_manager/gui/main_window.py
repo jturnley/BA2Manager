@@ -33,7 +33,12 @@ class MainWindow(QMainWindow):
         mo2_mods_dir = self.config.get("mo2_mods_dir", "")
         if not mo2_mods_dir or not os.path.exists(mo2_mods_dir):
             if mo2_root:
-                mo2_mods_dir = str(mo2_root / "mods")
+                # Check for custom mod directory in ModOrganizer.ini
+                custom_mods_dir = self.get_custom_mods_directory(mo2_root)
+                if custom_mods_dir and custom_mods_dir.exists():
+                    mo2_mods_dir = str(custom_mods_dir)
+                else:
+                    mo2_mods_dir = str(mo2_root / "mods")
                 self.config.set("mo2_mods_dir", mo2_mods_dir)
             else:
                 mo2_mods_dir = "mods"
@@ -90,6 +95,47 @@ class MainWindow(QMainWindow):
         self.blink_state = False
         
         self.init_ui()
+    
+    def get_custom_mods_directory(self, mo2_root: Path) -> Optional[Path]:
+        """
+        Check ModOrganizer.ini for a custom 'mod_directory' setting.
+        Returns the absolute path if found, otherwise None.
+        """
+        ini_path = mo2_root / "ModOrganizer.ini"
+        if not ini_path.exists():
+            return None
+            
+        try:
+            with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
+                in_settings = False
+                for line in f:
+                    line = line.strip()
+                    if line == "[Settings]":
+                        in_settings = True
+                        continue
+                    elif line.startswith("[") and line.endswith("]"):
+                        in_settings = False
+                        continue
+                        
+                    if in_settings and line.startswith("mod_directory="):
+                        value = line.split("=", 1)[1].strip()
+                        if not value:
+                            return None
+                        
+                        # Handle @ByteArray if present
+                        if value.startswith("@ByteArray(") and value.endswith(")"):
+                            value = value[11:-1]
+                            # Handle escaped backslashes common in Qt settings
+                            value = value.replace("\\\\", "\\")
+                        
+                        path_val = Path(value)
+                        if path_val.is_absolute():
+                            return path_val
+                        else:
+                            return mo2_root / path_val
+        except Exception:
+            pass
+        return None
     
     def detect_mo2_installation(self) -> Path:
         """
@@ -162,7 +208,7 @@ class MainWindow(QMainWindow):
         exit_layout.addStretch()
         
         # Version label
-        version_label = QLabel("v1.0.0")
+        version_label = QLabel("v1.1.0")
         version_label.setStyleSheet("color: gray; margin-right: 10px;")
         exit_layout.addWidget(version_label)
         
@@ -242,7 +288,7 @@ class MainWindow(QMainWindow):
         bar_layout.setSpacing(5)
         
         # Title
-        title = QLabel("BA2 Count")
+        title = QLabel("BA2 Counts")
         title_font = QFont()
         title_font.setBold(True)
         title_font.setPointSize(10)
@@ -250,46 +296,65 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bar_layout.addWidget(title)
         
-        # Value label (will be updated)
-        self.ba2_value_label = QLabel("0")
+        # Main BA2 section
+        main_label = QLabel("Main")
+        main_font = QFont()
+        main_font.setPointSize(8)
+        main_label.setFont(main_font)
+        main_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar_layout.addWidget(main_label)
+        
+        self.ba2_main_value = QLabel("0")
         value_font = QFont()
-        value_font.setPointSize(14)
+        value_font.setPointSize(12)
         value_font.setBold(True)
-        self.ba2_value_label.setFont(value_font)
-        self.ba2_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        bar_layout.addWidget(self.ba2_value_label)
+        self.ba2_main_value.setFont(value_font)
+        self.ba2_main_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar_layout.addWidget(self.ba2_main_value)
         
-        # Status label
-        self.ba2_status_label = QLabel("Safe")
-        status_font = QFont()
-        status_font.setPointSize(8)
-        self.ba2_status_label.setFont(status_font)
-        self.ba2_status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        bar_layout.addWidget(self.ba2_status_label)
+        # Main bars container
+        main_bar_container = QHBoxLayout()
+        main_bar_container.addStretch()
+        self.ba2_main_progress = QProgressBar()
+        self.ba2_main_progress.setOrientation(Qt.Orientation.Vertical)
+        self.ba2_main_progress.setMinimum(0)
+        self.ba2_main_progress.setMaximum(255)
+        self.ba2_main_progress.setValue(0)
+        self.ba2_main_progress.setTextVisible(False)
+        self.ba2_main_progress.setFixedWidth(25)
+        self.update_ba2_bar_style_main(0, 255)
+        main_bar_container.addWidget(self.ba2_main_progress)
+        main_bar_container.addStretch()
+        bar_layout.addLayout(main_bar_container)
         
-        # Container for centered bar
-        bar_container = QHBoxLayout()
-        bar_container.addStretch()
+        # Texture BA2 section
+        texture_label = QLabel("Textures")
+        texture_label.setFont(main_font)
+        texture_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar_layout.addWidget(texture_label)
         
-        # Progress bar (vertical orientation with gradient)
-        self.ba2_progress = QProgressBar()
-        self.ba2_progress.setOrientation(Qt.Orientation.Vertical)
-        self.ba2_progress.setMinimum(0)
-        self.ba2_progress.setMaximum(501)
-        self.ba2_progress.setValue(0)
-        self.ba2_progress.setTextVisible(False)
-        self.ba2_progress.setFixedWidth(25)
+        self.ba2_texture_value = QLabel("0")
+        self.ba2_texture_value.setFont(value_font)
+        self.ba2_texture_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar_layout.addWidget(self.ba2_texture_value)
         
-        # Set the stylesheet for color gradient
-        self.update_ba2_bar_style(0)
-        
-        bar_container.addWidget(self.ba2_progress)
-        bar_container.addStretch()
-        
-        bar_layout.addLayout(bar_container)
+        # Texture bars container
+        texture_bar_container = QHBoxLayout()
+        texture_bar_container.addStretch()
+        self.ba2_texture_progress = QProgressBar()
+        self.ba2_texture_progress.setOrientation(Qt.Orientation.Vertical)
+        self.ba2_texture_progress.setMinimum(0)
+        self.ba2_texture_progress.setMaximum(254)
+        self.ba2_texture_progress.setValue(0)
+        self.ba2_texture_progress.setTextVisible(False)
+        self.ba2_texture_progress.setFixedWidth(25)
+        self.update_ba2_bar_style_texture(0, 254)
+        texture_bar_container.addWidget(self.ba2_texture_progress)
+        texture_bar_container.addStretch()
+        bar_layout.addLayout(texture_bar_container)
         
         # Thresholds info
-        thresholds = QLabel("0 Safe\n350 Warn\n500 Danger")
+        thresholds = QLabel("Main: 0-255\nTextures: 0-254")
         thresholds_font = QFont()
         thresholds_font.setPointSize(7)
         thresholds.setFont(thresholds_font)
@@ -297,9 +362,67 @@ class MainWindow(QMainWindow):
         bar_layout.addWidget(thresholds)
         
         bar_widget.setLayout(bar_layout)
-        bar_widget.setMaximumWidth(80)
+        bar_widget.setMaximumWidth(90)
         return bar_widget
     
+    def update_ba2_bar_style_main(self, value: int, limit: int):
+        """Update the main BA2 bar - green until max, then red blinking"""
+        if value > limit:
+            if not self.blink_timer.isActive():
+                self.blink_timer.start(500)
+            self.ba2_main_progress.setValue(limit)
+            self.ba2_main_value.setText(str(value))
+            self.ba2_main_value.setStyleSheet("color: #FF0000; font-weight: bold;")
+            return
+        
+        if self.blink_timer.isActive():
+            self.blink_timer.stop()
+            self.blink_state = False
+        
+        self.ba2_main_progress.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid #444;
+                border-radius: 5px;
+                background-color: #2b2b2b;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+                border-radius: 3px;
+            }
+        """)
+        self.ba2_main_value.setText(str(value))
+        self.ba2_main_value.setStyleSheet("color: #4CAF50; font-weight: bold;")
+        self.ba2_main_progress.setValue(value)
+    
+    def update_ba2_bar_style_texture(self, value: int, limit: int):
+        """Update the texture BA2 bar - green until max, then red blinking"""
+        if value > limit:
+            if not self.blink_timer.isActive():
+                self.blink_timer.start(500)
+            self.ba2_texture_progress.setValue(limit)
+            self.ba2_texture_value.setText(str(value))
+            self.ba2_texture_value.setStyleSheet("color: #FF0000; font-weight: bold;")
+            return
+        
+        if self.blink_timer.isActive():
+            self.blink_timer.stop()
+            self.blink_state = False
+        
+        self.ba2_texture_progress.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid #444;
+                border-radius: 5px;
+                background-color: #2b2b2b;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+                border-radius: 3px;
+            }
+        """)
+        self.ba2_texture_value.setText(str(value))
+        self.ba2_texture_value.setStyleSheet("color: #4CAF50; font-weight: bold;")
+        self.ba2_texture_progress.setValue(value)
+
     def update_ba2_bar_style(self, value: int):
         """Update the BA2 bar color based on value with smooth gradient"""
         
@@ -750,74 +873,51 @@ class MainWindow(QMainWindow):
             pass
 
     def refresh_ba2_count(self):
-        """Refresh BA2 count"""
+        """Refresh BA2 count with separate Main and Texture counts"""
         try:
             fo4_path = self.config.get("fo4_path", "")
             if not fo4_path:
                 self.safe_set_text('info_status', "ERROR: Fallout 4 path not configured in Settings")
-                # Set bar to 0 if not configured
-                self.ba2_progress.setValue(0)
-                self.update_ba2_bar_style(0)
+                self.update_ba2_bar_style_main(0, 255)
+                self.update_ba2_bar_style_texture(0, 254)
                 return
             
             counts = self.ba2_handler.count_ba2_files(fo4_path)
-            total = counts["total"]
+            main_total = counts["main_total"]
+            texture_total = counts["texture_total"]
             
-            # Update the BA2 status bar on the left (Always update this)
-            self.ba2_progress.setValue(total)
-            self.update_ba2_bar_style(total)
+            # Update the two progress bars
+            self.update_ba2_bar_style_main(main_total, 255)
+            self.update_ba2_bar_style_texture(texture_total, 254)
             
             # Update all the category counts (with safety checks)
             self.safe_set_text('info_main', str(counts["main"]))
             self.safe_set_text('info_dlc', str(counts["dlc"]))
             self.safe_set_text('info_cc', str(counts["creation_club"]))
             self.safe_set_text('info_creation_store', str(counts["creation_store"]))
-            self.safe_set_text('info_mods', str(counts["mods"]))
+            self.safe_set_text('info_mods', str(counts["mod_main"]))
             self.safe_set_text('info_replacements', f"{counts['replacements']} (not counted)")
             
-            total_str = f"{total}/255"
-            self.safe_set_text('info_total', total_str)
+            main_str = f"{main_total}/255"
+            texture_str = f"{texture_total}/254"
+            self.safe_set_text('info_total', f"Main: {main_str}\nTextures: {texture_str}")
             
-            # Color code the total based on thresholds
-            if total > 500:
+            # Color code based on limits exceeded
+            if main_total > 255 or texture_total > 254:
                 self.safe_set_style('info_total', "color: #FF6B6B; font-weight: bold;")
-            elif total > 350:
-                self.safe_set_style('info_total', "color: #FFB74D; font-weight: bold;")
+                status = "STATUS: OVER LIMIT - One or more BA2 categories exceeded!"
             else:
                 self.safe_set_style('info_total', "color: #4CAF50; font-weight: bold;")
+                status = "STATUS: SAFE - All BA2 counts within limits"
             
-            # Build status message with recommendations
-            status_lines = ["Safe Limit: 350", "Warning Zone: 350-500", "Danger Zone: 500+", ""]
-            
-            if total > 500:
-                status_lines.append("STATUS: DANGER ZONE!")
-                status_lines.append("You're exceeding the recommended safe limit.")
-                status_lines.append("The game might crash or experience freezes.")
-                status_lines.append("")
-                status_lines.append("What you should do:")
-                status_lines.append("1. Go back to the main menu")
-                status_lines.append("2. Choose 'Manage BA2 Mods'")
-                status_lines.append("3. Extract BA2 files to get closer to 350")
-            elif total > 350:
-                status_lines.append("STATUS: WARNING ZONE")
-                status_lines.append("You're in the warning zone. The game might still work,")
-                status_lines.append("but you're more likely to experience crashes, freezes,")
-                status_lines.append("or other problems.")
-                status_lines.append("")
-                status_lines.append("Recommendation: Extract BA2 files when possible.")
-            else:
-                status_lines.append("STATUS: SAFE - All good!")
-                status_lines.append("Your BA2 count is within safe limits.")
-            
-            self.safe_set_text('info_status', "\n".join(status_lines))
+            self.safe_set_text('info_status', status)
             
         except Exception as e:
             import traceback
             traceback.print_exc()
             self.safe_set_text('info_status', f"Error counting BA2s: {str(e)}")
-            # Set bar to 0 on error
-            self.ba2_progress.setValue(0)
-            self.update_ba2_bar_style(0)
+            self.update_ba2_bar_style_main(0, 255)
+            self.update_ba2_bar_style_texture(0, 254)
     
     def load_mod_list(self):
         """
