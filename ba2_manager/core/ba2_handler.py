@@ -521,7 +521,7 @@ class BA2Handler:
                 
                 if ba2_name in self.vanilla_ba2_names:
                     # Categorize replacement as main or texture
-                    if " - textures" in ba2_name or " - voices" in ba2_name:
+                    if " - textures" in ba2_name:
                         replacement_texture_count += 1
                         self.logger.info(f"    -> Vanilla replacement texture (active)")
                     else:
@@ -531,7 +531,7 @@ class BA2Handler:
                 else:
                     # Categorize as MAIN or TEXTURES based on filename pattern
                     # Texture BA2s contain " - Textures" in the filename (e.g., " - Textures.ba2", " - Textures1.ba2")
-                    if " - textures" in ba2_name or " - voices" in ba2_name:
+                    if " - textures" in ba2_name:
                         mod_texture_count += 1
                         self.logger.info(f"    -> Texture BA2 (active)")
                     else:
