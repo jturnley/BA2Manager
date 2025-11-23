@@ -704,8 +704,8 @@ class BA2Handler:
         List all BA2 mod files with separate tracking of main and texture BA2s.
         
         For each mod, tracks:
-        - Whether it has a main BA2 file (not ending in " - textures.ba2")
-        - Whether it has a texture BA2 file (ending in " - textures.ba2")
+        - Whether it has a main BA2 file (not containing " - Texture" in filename)
+        - Whether it has a texture BA2 file (containing " - Texture" in filename, e.g. " - Textures.ba2", " - Textures1.ba2")
         - Whether each is currently extracted
         - Total size of all BA2 files
         
@@ -744,7 +744,8 @@ class BA2Handler:
                             }
                         
                         # Categorize BA2 file
-                        is_texture = ba2_file.name.lower().endswith(" - textures.ba2")
+                        # Texture BA2s contain " - Texture" in the filename (e.g., " - Textures.ba2", " - Textures1.ba2")
+                        is_texture = " - texture" in ba2_file.name.lower()
                         file_size = ba2_file.stat().st_size
                         ba2_mods[mod_name]['total_size'] += file_size
                         
@@ -782,7 +783,7 @@ class BA2Handler:
                         
                         for f in mod_backup.rglob("*.ba2"):
                             backup_size += f.stat().st_size
-                            if f.name.lower().endswith(" - textures.ba2"):
+                            if " - texture" in f.name.lower():
                                 texture_ba2_in_backup = True
                             else:
                                 main_ba2_in_backup = True
