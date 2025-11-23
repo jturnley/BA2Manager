@@ -169,9 +169,9 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """Initialize the user interface"""
         self.setWindowTitle("BA2 Manager")
-        # Set a smaller, more compact default size (approx 800x600)
-        self.setGeometry(100, 100, 800, 600)
-        self.setMinimumSize(750, 550)
+        # Set default size to match expected layout (approx 1000x700)
+        self.setGeometry(100, 100, 1000, 700)
+        self.setMinimumSize(900, 650)
         
         # Set Window Icon
         # Check for icon in current dir or sys._MEIPASS (if frozen)
