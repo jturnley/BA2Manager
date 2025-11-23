@@ -497,6 +497,8 @@ class BA2Handler:
         mod_main_count = 0
         mod_texture_count = 0
         replacement_count = 0
+        replacement_main_count = 0
+        replacement_texture_count = 0
         
         mods_path = Path(self.mo2_dir)
         self.logger.info(f"Scanning mods path: {mods_path}")
@@ -518,8 +520,14 @@ class BA2Handler:
                 self.logger.info(f"  Checking mod BA2: {ba2_file.relative_to(mods_path)}")
                 
                 if ba2_name in self.vanilla_ba2_names:
+                    # Categorize replacement as main or texture
+                    if " - texture" in ba2_name:
+                        replacement_texture_count += 1
+                        self.logger.info(f"    -> Vanilla replacement texture (active)")
+                    else:
+                        replacement_main_count += 1
+                        self.logger.info(f"    -> Vanilla replacement main (active)")
                     replacement_count += 1
-                    self.logger.info(f"    -> Vanilla replacement (active)")
                 else:
                     # Categorize as MAIN or TEXTURES based on filename pattern
                     # Texture BA2s contain " - Texture" in the filename (e.g., " - Textures.ba2", " - Textures1.ba2")
@@ -552,6 +560,8 @@ class BA2Handler:
             "mod_main": mod_main_count,
             "mod_textures": mod_texture_count,
             "replacements": replacement_count,
+            "replacement_main": replacement_main_count,
+            "replacement_textures": replacement_texture_count,
             "vanilla_ba2_names": self.vanilla_ba2_names,
             "main_total": base_game_count + mod_main_count,
             "texture_total": base_game_texture_count + mod_texture_count,
