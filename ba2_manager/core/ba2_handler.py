@@ -425,7 +425,9 @@ class BA2Handler:
         """
         main_count = 0
         dlc_count = 0
+        dlc_texture_count = 0
         cc_count = 0
+        cc_texture_count = 0
         creation_store_count = 0
         # Reset to defaults + scanned
         self.vanilla_ba2_names = set(name.lower() for name in self.VANILLA_BA2S)
@@ -453,9 +455,17 @@ class BA2Handler:
                         ba2_base = re.sub(r' - (main|textures)$', '', ba2_base, flags=re.IGNORECASE)
                         
                         if ba2_base.lower() in active_cc_plugins:
-                            cc_count += 1
+                            # Distinguish between main and texture CC BA2s
+                            if " - textures" in ba2_name:
+                                cc_texture_count += 1
+                            else:
+                                cc_count += 1
                     elif ba2_name.startswith("dlc"):
-                        dlc_count += 1
+                        # Distinguish between main and texture DLC BA2s
+                        if " - textures" in ba2_name:
+                            dlc_texture_count += 1
+                        else:
+                            dlc_count += 1
                     elif ba2_name.startswith("fallout4 - "):
                         main_count += 1
                     else:
@@ -509,8 +519,9 @@ class BA2Handler:
             self.logger.warning(f"Mods directory does not exist: {mods_path}")
         
         base_game_count = main_count + dlc_count + cc_count + creation_store_count
+        base_game_texture_count = dlc_texture_count + cc_texture_count
         
-        self.logger.info(f"Count summary: Base={base_game_count} (Main={main_count}, DLC={dlc_count}, CC={cc_count}, CreationStore={creation_store_count}), ModMain={mod_main_count}, ModTextures={mod_texture_count}")
+        self.logger.info(f"Count summary: Base={base_game_count} (Main={main_count}, DLC={dlc_count}, CC={cc_count}, CreationStore={creation_store_count}), BaseTex={base_game_texture_count} (DLCTex={dlc_texture_count}, CCTex={cc_texture_count}), ModMain={mod_main_count}, ModTextures={mod_texture_count}")
         
         return {
             "main": main_count,
@@ -518,12 +529,13 @@ class BA2Handler:
             "creation_club": cc_count,
             "creation_store": creation_store_count,
             "base_game": base_game_count,
+            "base_game_textures": base_game_texture_count,
             "mod_main": mod_main_count,
             "mod_textures": mod_texture_count,
             "replacements": replacement_count,
             "vanilla_ba2_names": self.vanilla_ba2_names,
             "main_total": base_game_count + mod_main_count,
-            "texture_total": mod_texture_count,
+            "texture_total": base_game_texture_count + mod_texture_count,
             "limit_main": 255,
             "limit_textures": 254
         }
