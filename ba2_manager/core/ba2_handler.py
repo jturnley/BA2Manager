@@ -564,8 +564,8 @@ class BA2Handler:
                     # Skip comments and empty lines
                     if not line or line.startswith('#'):
                         continue
-                    # Active mods are prefixed with *
-                    if line.startswith('*'):
+                    # Active mods are prefixed with + (inactive with -)
+                    if line.startswith('+'):
                         mod_name = line[1:].strip()
                         active_mods.add(mod_name.lower())
                         self.logger.debug(f"Active mod found: {mod_name}")
