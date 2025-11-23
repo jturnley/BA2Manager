@@ -581,7 +581,7 @@ class MainWindow(QMainWindow):
         # Status and recommendations
         self.info_status = QTextEdit()
         self.info_status.setReadOnly(True)
-        self.info_status.setMaximumHeight(200)
+        self.info_status.setMaximumHeight(60)
         info_layout.addWidget(self.info_status)
         
         info_layout.addStretch()
@@ -682,7 +682,7 @@ class MainWindow(QMainWindow):
         
         self.mod_status = QTextEdit()
         self.mod_status.setReadOnly(True)
-        self.mod_status.setMaximumHeight(150)
+        self.mod_status.setMaximumHeight(60)
         self.mod_status.setText("Loading mod list...")
         manage_layout.addWidget(self.mod_status)
         
@@ -742,7 +742,7 @@ class MainWindow(QMainWindow):
         
         self.cc_status = QTextEdit()
         self.cc_status.setReadOnly(True)
-        self.cc_status.setMaximumHeight(150)
+        self.cc_status.setMaximumHeight(60)
         cc_layout.addWidget(self.cc_status)
         
         cc_layout.addStretch()
@@ -838,7 +838,7 @@ class MainWindow(QMainWindow):
         # Status
         self.settings_status = QTextEdit()
         self.settings_status.setReadOnly(True)
-        self.settings_status.setMaximumHeight(150)
+        self.settings_status.setMaximumHeight(60)
         settings_layout.addWidget(QLabel("Configuration Status:"))
         settings_layout.addWidget(self.settings_status)
         self.update_settings_status()
