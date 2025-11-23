@@ -6,7 +6,7 @@ a = Analysis(
     ['ba2_manager/main.py'],
     pathex=[],
     binaries=[],
-    datas=[('ba2_manager/resources', 'ba2_manager/resources')],
+    datas=[('ba2_manager/resources', 'ba2_manager/resources'), ('app.ico', '.')],
     hiddenimports=['PyQt6'],
     hookspath=[],
     hooksconfig={},
@@ -39,4 +39,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='app.ico',
 )

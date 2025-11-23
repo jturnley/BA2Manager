@@ -61,6 +61,7 @@ class BA2Info:
     mod_name: str
     is_extracted: bool = False
     file_count: int = 0
+    has_backup: bool = False
 
 
 class BA2Handler:
@@ -272,6 +273,24 @@ class BA2Handler:
     VANILLA_BA2S = [
         "Fallout4.ba2",
         "Fallout4 - Textures.ba2",
+        "Fallout4 - Textures1.ba2",
+        "Fallout4 - Textures2.ba2",
+        "Fallout4 - Textures3.ba2",
+        "Fallout4 - Textures4.ba2",
+        "Fallout4 - Textures5.ba2",
+        "Fallout4 - Textures6.ba2",
+        "Fallout4 - Textures7.ba2",
+        "Fallout4 - Textures8.ba2",
+        "Fallout4 - Textures9.ba2",
+        "Fallout4 - Voices.ba2",
+        "Fallout4 - Startup.ba2",
+        "Fallout4 - Interface.ba2",
+        "Fallout4 - Meshes.ba2",
+        "Fallout4 - MeshesExtra.ba2",
+        "Fallout4 - Misc.ba2",
+        "Fallout4 - Sounds.ba2",
+        "Fallout4 - Materials.ba2",
+        "Fallout4 - Animations.ba2",
         "DLCRobot.ba2",
         "DLCRobot - Textures.ba2",
         "DLCworkshop01.ba2",
@@ -280,6 +299,10 @@ class BA2Handler:
         "DLCCoast - Textures.ba2",
         "DLCNukaWorld.ba2",
         "DLCNukaWorld - Textures.ba2",
+        "DLCworkshop02.ba2",
+        "DLCworkshop02 - Textures.ba2",
+        "DLCworkshop03.ba2",
+        "DLCworkshop03 - Textures.ba2",
     ]
     
     def __init__(self, archive2_path: Optional[str] = None, mo2_dir: Optional[str] = None, backup_dir: Optional[str] = None, log_file: Optional[str] = None):
@@ -297,6 +320,8 @@ class BA2Handler:
         self.backup_dir = backup_dir or "mod_backups"
         self.log_file = log_file or "BA2_Extract.log"
         self.failed_extractions = []
+        # Initialize vanilla BA2 names with hardcoded list as fallback
+        self.vanilla_ba2_names = set(name.lower() for name in self.VANILLA_BA2S)
         
         # Setup logging
         import sys
@@ -398,7 +423,8 @@ class BA2Handler:
         dlc_count = 0
         cc_count = 0
         creation_store_count = 0
-        vanilla_ba2_names = set()
+        # Reset to defaults + scanned
+        self.vanilla_ba2_names = set(name.lower() for name in self.VANILLA_BA2S)
         
         # Log debug info
         self.logger.info(f"Counting BA2 files from: {fo4_path}")
@@ -413,7 +439,7 @@ class BA2Handler:
             if data_path.exists():
                 for ba2_file in data_path.glob("*.ba2"):
                     ba2_name = ba2_file.name.lower()
-                    vanilla_ba2_names.add(ba2_name)
+                    self.vanilla_ba2_names.add(ba2_name)
                     
                     # Categorize BA2 files exactly like PowerShell script
                     if ba2_name.startswith("cc"):
@@ -422,7 +448,7 @@ class BA2Handler:
                         # Handle names like "ccbgsfo4119-cyberdog - main.ba2"
                         ba2_base = re.sub(r' - (main|textures)$', '', ba2_base, flags=re.IGNORECASE)
                         
-                        if ba2_base in active_cc_plugins:
+                        if ba2_base.lower() in active_cc_plugins:
                             cc_count += 1
                     elif ba2_name.startswith("dlc"):
                         dlc_count += 1
@@ -448,7 +474,7 @@ class BA2Handler:
                 ba2_name = ba2_file.name.lower()
                 self.logger.info(f"  Checking mod BA2: {ba2_file.relative_to(mods_path)}")
                 
-                if ba2_name in vanilla_ba2_names:
+                if ba2_name in self.vanilla_ba2_names:
                     replacement_count += 1
                     self.logger.info(f"    -> Vanilla replacement")
                 else:
@@ -470,7 +496,7 @@ class BA2Handler:
             "base_game": base_game_count,
             "mods": mod_count,
             "replacements": replacement_count,
-            "vanilla_ba2_names": vanilla_ba2_names,
+            "vanilla_ba2_names": self.vanilla_ba2_names,
             "total": total,
             "limit": 255
         }
@@ -572,8 +598,9 @@ class BA2Handler:
         mods_path = Path(self.mo2_dir)
         backup_path = Path(self.backup_dir)
         
-        # Track which mods we've already found to avoid duplicates
-        found_mods = set()
+        # Dictionary to aggregate mod info
+        # Key: mod_name, Value: {path, size, file_count, replacement_count, has_backup}
+        mods_data = {}
         
         # 1. Scan for BA2 files in mods directory (Normal state)
         if mods_path.exists():
@@ -582,61 +609,27 @@ class BA2Handler:
                     try:
                         mod_name = ba2_file.parent.name
                         
-                        # Skip if we've already processed this mod (one entry per mod)
-                        # Wait, the original logic returned one entry per BA2 file?
-                        # Let's check the original code.
-                        # Original: ba2_files.append(BA2Info(path=str(ba2_file), ...))
-                        # It returned one entry per BA2 file.
-                        # But the GUI seems to list mods, not files?
-                        # "item_text = f"{mod.mod_name} ({size_mb:.1f} MB)"
-                        # If a mod has multiple BA2s, it would appear multiple times in the list.
-                        # The PowerShell script groups by mod.
-                        # Let's see how the GUI handles it.
-                        # GUI: for i, mod in enumerate(mods): ... self.mod_list.addItem(item)
-                        # So if a mod has 2 BA2s, and I check one, what happens?
-                        # The PowerShell script lists MODS, not BA2s.
-                        # "Select mods to EXTRACT..."
-                        # I should probably group by mod here to match PowerShell behavior.
-                        # But let's look at what I can do with minimal changes first.
-                        # If I group by mod, I need to aggregate size and file count.
+                        if mod_name not in mods_data:
+                            mods_data[mod_name] = {
+                                'path': str(ba2_file.parent),
+                                'size': 0,
+                                'file_count': 0,
+                                'replacement_count': 0,
+                                'has_backup': (backup_path / mod_name).exists()
+                            }
                         
-                        # Let's change it to group by mod, as that's what the user expects.
-                        # But wait, `BA2Info` has a `path` attribute. If I group, what is `path`?
-                        # It should probably be the mod directory path.
-                        
-                        # Let's see what `BA2Info` is used for.
-                        # GUI uses: mod.size, mod.mod_name.
-                        # It doesn't seem to use mod.path for extraction yet (because extraction wasn't implemented).
-                        
-                        # I will modify this to return one entry per MOD.
-                        
-                        mod_dir_path = ba2_file.parent
-                        if mod_name in found_mods:
-                            # Update existing entry size
-                            for info in ba2_files:
-                                if info.mod_name == mod_name:
-                                    info.size += ba2_file.stat().st_size
-                                    info.file_count += 1
-                                    break
-                            continue
-                        
-                        found_mods.add(mod_name)
-                        
-                        # Safely get file size
+                        # Update stats
                         try:
-                            file_size = ba2_file.stat().st_size
-                        except (OSError, IOError) as e:
-                            self.logger.warning(f"Could not stat file {ba2_file}: {e}")
-                            file_size = 0
+                            mods_data[mod_name]['size'] += ba2_file.stat().st_size
+                        except (OSError, IOError):
+                            pass
+                            
+                        mods_data[mod_name]['file_count'] += 1
                         
-                        ba2_info = BA2Info(
-                            path=str(mod_dir_path), # Store mod dir path instead of file path
-                            size=file_size,
-                            mod_name=mod_name,
-                            is_extracted=False,
-                            file_count=1
-                        )
-                        ba2_files.append(ba2_info)
+                        # Check if this is a vanilla replacement file
+                        if ba2_file.name.lower() in self.vanilla_ba2_names:
+                            mods_data[mod_name]['replacement_count'] += 1
+                            
                     except Exception as e:
                         self.logger.warning(f"Error processing BA2 file {ba2_file}: {e}")
                         continue
@@ -644,8 +637,24 @@ class BA2Handler:
                 self.logger.error(f"Error listing BA2 mods in {self.mo2_dir}: {e}")
         else:
             self.logger.info(f"Mods directory does not exist: {self.mo2_dir}")
+
+        # 2. Convert to BA2Info list, filtering out pure replacements
+        for mod_name, data in mods_data.items():
+            # FILTER: If all files are replacements, skip this mod
+            if data['file_count'] > 0 and data['file_count'] == data['replacement_count']:
+                # self.logger.info(f"Skipping vanilla replacement mod: {mod_name}")
+                continue
+                
+            ba2_files.append(BA2Info(
+                path=data['path'],
+                size=data['size'],
+                mod_name=mod_name,
+                is_extracted=False,
+                file_count=data['file_count'],
+                has_backup=data['has_backup']
+            ))
             
-        # 2. Scan for extracted mods in backup directory
+        # 3. Scan for extracted mods in backup directory
         if backup_path.exists():
             try:
                 for mod_backup in backup_path.iterdir():
@@ -654,9 +663,7 @@ class BA2Handler:
                         
                         # If we already found this mod in the mods dir (with BA2s), 
                         # it means it's not fully extracted or something is weird.
-                        # But typically, if it's in backup, it might be extracted.
-                        # However, if it has BA2s in the live folder, we treat it as "Not Extracted" (Normal).
-                        if mod_name in found_mods:
+                        if mod_name in mods_data:
                             continue
                             
                         # This is an extracted mod
@@ -669,14 +676,14 @@ class BA2Handler:
                             backup_size += f.stat().st_size
                             ba2_count += 1
                             
-                        ba2_info = BA2Info(
+                        ba2_files.append(BA2Info(
                             path=str(mods_path / mod_name), # Path where it SHOULD be
                             size=backup_size,
                             mod_name=mod_name,
                             is_extracted=True,
-                            file_count=ba2_count
-                        )
-                        ba2_files.append(ba2_info)
+                            file_count=ba2_count,
+                            has_backup=True
+                        ))
                         
             except Exception as e:
                 self.logger.error(f"Error listing backups in {self.backup_dir}: {e}")
@@ -1008,7 +1015,11 @@ class BA2Handler:
                 # If BA2 contains "textures/foo.dds", and we extract to mod_path,
                 # it will be at "mod_path/textures/foo.dds".
                 
-                cmd = [self.archive2_path, "-extract", str(ba2_file), "-output", str(mod_path)]
+                # Archive2.exe usage: Archive2.exe <archive_path> -extract=<destination_path>
+                # We construct the command string manually to ensure correct quoting for Archive2
+                # Archive2 requires: "path\to\archive.ba2" -extract="path\to\destination"
+                cmd = f'"{self.archive2_path}" "{ba2_file}" -extract="{mod_path}"'
+                
                 # Use startupinfo to hide console window
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW

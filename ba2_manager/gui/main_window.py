@@ -7,8 +7,8 @@ from PyQt6.QtWidgets import (
     QProgressBar, QGroupBox, QFormLayout, QFileDialog, QDialog,
     QDialogButtonBox, QLineEdit, QCheckBox, QApplication
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont, QColor, QIcon
 from ba2_manager.core.ba2_handler import BA2Handler
 from ba2_manager.config import Config
 import os
@@ -25,29 +25,35 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.config = Config()
         
-        # Initialize BA2Handler with configured paths
-        mo2_mods_dir = self.config.get("mo2_mods_dir", "")
+        # Detect MO2 installation first to establish a portable root
+        mo2_root = self.detect_mo2_installation()
         
-        # Auto-detect MO2 if missing
+        # Initialize paths with defaults or detection
+        mo2_mods_dir = self.config.get("mo2_mods_dir", "")
         if not mo2_mods_dir or not os.path.exists(mo2_mods_dir):
-            mo2_root = self.detect_mo2_installation()
             if mo2_root:
                 mo2_mods_dir = str(mo2_root / "mods")
                 self.config.set("mo2_mods_dir", mo2_mods_dir)
-                # Also set backup dir
-                self.config.set("backup_dir", str(mo2_root / "BA2_Manager_Backups"))
-        
-        # Fallback to default "mods" if still nothing
-        if not mo2_mods_dir:
-            mo2_mods_dir = "mods"
+            else:
+                mo2_mods_dir = "mods"
+
+        # Enforce portable backup directory structure
+        # If we found MO2, backups go to MO2/BA2_Manager_Backups
+        # Otherwise they go to ./BA2_Manager_Backups
+        backup_dir = self.config.get("backup_dir", "")
+        # Always update backup_dir if we found MO2, to ensure portability
+        if mo2_root:
+            backup_dir = str(mo2_root / "BA2_Manager_Backups")
+            self.config.set("backup_dir", backup_dir)
+        elif not backup_dir:
+            backup_dir = "BA2_Manager_Backups"
+            self.config.set("backup_dir", backup_dir)
 
         archive2_path = self.config.get("archive2_path", "")
         fo4_path = self.config.get("fo4_path", "")
         
         # Auto-detect FO4 path from MO2 if missing
-        if not fo4_path and mo2_mods_dir and os.path.exists(mo2_mods_dir):
-            # Infer MO2 root from mods dir (assuming mods is a subdir of MO2 root)
-            mo2_root = str(Path(mo2_mods_dir).parent)
+        if not fo4_path and mo2_root:
             detected_fo4 = self.detect_fo4_from_mo2(mo2_root)
             if detected_fo4:
                 self.config.set("fo4_path", detected_fo4)
@@ -68,15 +74,20 @@ class MainWindow(QMainWindow):
                     archive2_path = str(archive2_candidate)
                 
         log_file = self.config.get("log_file", "BA2_Extract.log")
-        backup_dir = self.config.get("backup_dir", "")
         
         self.ba2_handler = BA2Handler(
             archive2_path=archive2_path if archive2_path else None,
             mo2_dir=mo2_mods_dir,
-            backup_dir=backup_dir if backup_dir else None,
+            backup_dir=backup_dir,
             log_file=log_file
         )
         self.current_view = None
+        
+        # Blink timer for danger state
+        self.blink_timer = QTimer()
+        self.blink_timer.timeout.connect(self.blink_bar)
+        self.blink_state = False
+        
         self.init_ui()
     
     def detect_mo2_installation(self) -> Path:
@@ -103,6 +114,19 @@ class MainWindow(QMainWindow):
         # Set a smaller, more compact default size (approx 800x600)
         self.setGeometry(100, 100, 800, 600)
         self.setMinimumSize(750, 550)
+        
+        # Set Window Icon
+        # Check for icon in current dir or sys._MEIPASS (if frozen)
+        icon_name = "app.ico"
+        icon_path = Path(icon_name)
+        
+        if getattr(sys, 'frozen', False):
+            # If frozen, look in the temp folder where PyInstaller extracts data
+            base_path = Path(sys._MEIPASS)
+            icon_path = base_path / icon_name
+            
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         
         # Main container
         central_widget = QWidget()
@@ -135,6 +159,12 @@ class MainWindow(QMainWindow):
         # Exit button at bottom
         exit_layout = QHBoxLayout()
         exit_layout.addStretch()
+        
+        # Version label
+        version_label = QLabel("v1.0.0")
+        version_label.setStyleSheet("color: gray; margin-right: 10px;")
+        exit_layout.addWidget(version_label)
+        
         exit_btn = QPushButton("Exit")
         exit_btn.setMaximumWidth(150)
         exit_btn.clicked.connect(self.close)
@@ -271,6 +301,26 @@ class MainWindow(QMainWindow):
     
     def update_ba2_bar_style(self, value: int):
         """Update the BA2 bar color based on value with smooth gradient"""
+        
+        # Handle blinking for danger state (> 500)
+        if value > 500:
+            if not self.blink_timer.isActive():
+                self.blink_timer.start(500) # Blink every 500ms
+            
+            # Ensure bar is full
+            self.ba2_progress.setValue(501)
+            
+            # Update status text immediately
+            self.ba2_value_label.setText(str(value))
+            self.ba2_status_label.setText("DANGER")
+            self.ba2_value_label.setStyleSheet("color: #FF0000; font-weight: bold;")
+            return
+
+        # Stop blinking if safe
+        if self.blink_timer.isActive():
+            self.blink_timer.stop()
+            self.blink_state = False
+        
         # Calculate color based on value with smooth gradient
         # Green (0, 255, 0) to Red (255, 0, 0)
         
@@ -306,10 +356,7 @@ class MainWindow(QMainWindow):
         """)
         
         # Determine status text and color
-        if value > 500:
-            status = "DANGER"
-            label_style = "color: #FF6B6B; font-weight: bold;"
-        elif value > 350:
+        if value > 350:
             status = "WARNING"
             label_style = "color: #FFB74D; font-weight: bold;"
         else:
@@ -319,6 +366,29 @@ class MainWindow(QMainWindow):
         self.ba2_value_label.setText(str(value))
         self.ba2_status_label.setText(status)
         self.ba2_value_label.setStyleSheet(label_style)
+        self.ba2_progress.setValue(value)
+
+    def blink_bar(self):
+        """Toggle bar color for blinking effect"""
+        self.blink_state = not self.blink_state
+        
+        # Toggle between Bright Red and Dark Red
+        color = "#FF0000" if self.blink_state else "#550000"
+        
+        self.ba2_progress.setStyleSheet(f"""
+            QProgressBar {{
+                border: 2px solid #444;
+                border-radius: 5px;
+                text-align: center;
+                background-color: #2b2b2b;
+                color: white;
+                font-weight: bold;
+            }}
+            QProgressBar::chunk {{
+                background-color: {color};
+                border-radius: 3px;
+            }}
+        """)
     
     def clear_content(self):
         """Clear the content area"""
@@ -423,6 +493,12 @@ class MainWindow(QMainWindow):
         instructions = QLabel("Check boxes to select mods. Checked mods will be extracted, unchecked mods will be restored.")
         manage_layout.addWidget(instructions)
         
+        # Show Backup Directory
+        backup_dir = self.config.get("backup_dir", "Unknown")
+        backup_label = QLabel(f"Backup Directory: {backup_dir}")
+        backup_label.setStyleSheet("color: gray; font-style: italic;")
+        manage_layout.addWidget(backup_label)
+        
         # === MOD LIST ===
         # The list displays all BA2 mods from the MO2 mods directory with checkboxes
         # Each item is a QListWidgetItem with ItemIsUserCheckable flag enabled
@@ -438,6 +514,11 @@ class MainWindow(QMainWindow):
         # Logic: compares current checkbox state with tracked state, performs necessary operations
         button_layout = QHBoxLayout()
         button_layout.addStretch()
+        
+        restore_all_btn = QPushButton("Restore All Extracted")
+        restore_all_btn.setMaximumWidth(200)
+        restore_all_btn.clicked.connect(self.restore_all_mods)
+        button_layout.addWidget(restore_all_btn)
         
         apply_btn = QPushButton("Apply Changes")
         apply_btn.setMaximumWidth(200)
@@ -630,6 +711,11 @@ class MainWindow(QMainWindow):
         logs_btn.clicked.connect(self.show_logs)
         settings_layout.addWidget(logs_btn)
         
+        # License button
+        license_btn = QPushButton("View License")
+        license_btn.clicked.connect(self.show_license)
+        settings_layout.addWidget(license_btn)
+        
         settings_layout.addStretch()
         settings_widget.setLayout(settings_layout)
         self.content_layout.addWidget(settings_widget)
@@ -767,10 +853,19 @@ class MainWindow(QMainWindow):
                 if mod.is_extracted:
                     item.setCheckState(Qt.CheckState.Checked)
                     item.setForeground(QColor("#4CAF50"))  # Green for extracted
+                    item.setToolTip("Status: Extracted (No BA2s found, Backup exists)")
                     self.mod_extracted_status[i] = True
                 else:
                     item.setCheckState(Qt.CheckState.Unchecked)
                     self.mod_extracted_status[i] = False
+                    
+                    if mod.has_backup:
+                        # Backup exists but BA2s are present -> Not fully extracted or restored
+                        item.setToolTip("Status: Not Extracted (BA2s present). Backup exists.")
+                        # Optional: Use a different color to indicate this state?
+                        # item.setForeground(QColor("#FFC107")) # Amber/Yellow
+                    else:
+                        item.setToolTip("Status: Not Extracted (BA2s present)")
                     
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)  # Enable checkbox
                 self.mod_list.addItem(item)
@@ -965,8 +1060,8 @@ class MainWindow(QMainWindow):
         operation completes successfully.
         
         UPDATES:
-        1. Item text color: Changes to BLACK (#000000)
-           Black indicates the BA2 is RESTORED/NORMAL state
+        1. Item text color: Resets to default (Theme color)
+           Default color indicates the BA2 is RESTORED/NORMAL state
         2. Tracking dict: Sets mod_extracted_status[index] = False
            This records the current state for future comparisons
         
@@ -978,8 +1073,8 @@ class MainWindow(QMainWindow):
             return
         
         # === UPDATE VISUAL STATE ===
-        # Black color signals: this mod is in RESTORED state (normal/original)
-        item.setForeground(QColor("#000000"))
+        # Reset color to default theme color (clears the green/grey override)
+        item.setData(Qt.ItemDataRole.ForegroundRole, None)
         
         # === UPDATE TRACKING STATE ===
         # Record that this mod is now considered restored
@@ -1292,3 +1387,76 @@ class MainWindow(QMainWindow):
         logs_layout.addStretch()
         logs_widget.setLayout(logs_layout)
         self.content_layout.addWidget(logs_widget)
+    
+    def restore_all_mods(self):
+        """
+        Restore ALL currently extracted mods to their original state.
+        """
+        # Confirmation dialog
+        confirm = QMessageBox.question(
+            self, 
+            "Confirm Restore All",
+            "Are you sure you want to restore ALL extracted mods?\nThis will delete loose files and restore original BA2 archives.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+
+        restored_count = 0
+        failed_count = 0
+        
+        self.setEnabled(False)
+        self.mod_status.setText("Restoring all mods... Please wait.")
+        QApplication.processEvents()
+        
+        try:
+            # Iterate through all items
+            for i in range(self.mod_list.count()):
+                item = self.mod_list.item(i)
+                mod_name = item.data(Qt.ItemDataRole.UserRole)
+                
+                # Check if currently extracted
+                if self.mod_extracted_status.get(i, False):
+                    if self.ba2_handler.restore_mod(mod_name):
+                        self.unmark_mod_extracted(i)
+                        item.setCheckState(Qt.CheckState.Unchecked)
+                        restored_count += 1
+                    else:
+                        failed_count += 1
+            
+            self.mod_status.setText(f"Restore All Complete: Restored {restored_count} mods. Failed: {failed_count}")
+            
+            # Refresh the BA2 count bar
+            self.refresh_ba2_count()
+            
+        except Exception as e:
+            self.mod_status.setText(f"Error during Restore All: {str(e)}")
+        finally:
+            self.setEnabled(True)
+    
+    def show_license(self):
+        """Show MIT License in a popup"""
+        license_text = """MIT License
+
+Copyright (c) 2025 jturnley
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE."""
+        
+        QMessageBox.information(self, "MIT License", license_text)
