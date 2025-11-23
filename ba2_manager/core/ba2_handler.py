@@ -457,13 +457,15 @@ class BA2Handler:
                         
                         if ba2_base.lower() in active_cc_plugins:
                             # Distinguish between main and texture CC BA2s
-                            if " - textures" in ba2_name:
+                            # Texture BA2s contain " - Texture" in the filename
+                            if " - texture" in ba2_name:
                                 cc_texture_count += 1
                             else:
                                 cc_count += 1
                     elif ba2_name.startswith("dlc"):
                         # Distinguish between main and texture DLC BA2s
-                        if " - textures" in ba2_name:
+                        # Texture BA2s contain " - Texture" in the filename
+                        if " - texture" in ba2_name:
                             dlc_texture_count += 1
                         else:
                             dlc_count += 1
@@ -509,7 +511,8 @@ class BA2Handler:
                     self.logger.info(f"    -> Vanilla replacement (active)")
                 else:
                     # Categorize as MAIN or TEXTURES based on filename pattern
-                    if ba2_name.endswith(" - textures.ba2"):
+                    # Texture BA2s contain " - Texture" in the filename (e.g., " - Textures.ba2", " - Textures1.ba2")
+                    if " - texture" in ba2_name:
                         mod_texture_count += 1
                         self.logger.info(f"    -> Texture BA2 (active)")
                     else:
