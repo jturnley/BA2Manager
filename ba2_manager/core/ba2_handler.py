@@ -927,24 +927,46 @@ class BA2Handler:
             return False
         
         try:
+            import time
+            start_time = time.time()
+            
             if output_dir is None:
                 output_dir = os.path.dirname(ba2_path)
+            
+            # Log extraction details in debug mode
+            ba2_size = os.path.getsize(ba2_path)
+            self.logger.debug(f"Extracting BA2: {ba2_path} (Size: {ba2_size / 1024 / 1024:.2f} MB)")
+            self.logger.debug(f"Output directory: {output_dir}")
             
             os.makedirs(output_dir, exist_ok=True)
             
             # Run Archive2.exe to extract
             cmd = [self.archive2_path, "-extract", ba2_path, "-output", output_dir]
+            self.logger.debug(f"Running command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, timeout=300)
             
+            extraction_time = time.time() - start_time
+            
             if result.returncode == 0:
-                self.logger.info(f"Successfully extracted: {ba2_path}")
+                # Log extraction result details
+                self.logger.info(f"Successfully extracted: {ba2_path} (Duration: {extraction_time:.2f}s)")
+                self.logger.debug(f"Archive2.exe stdout: {result.stdout.decode()}")
+                
+                # Count extracted files if possible
+                if os.path.exists(output_dir):
+                    file_count = sum([len(files) for _, _, files in os.walk(output_dir)])
+                    self.logger.debug(f"Files extracted: {file_count}")
+                
                 return True
             else:
-                self.logger.error(f"Failed to extract {ba2_path}: {result.stderr.decode()}")
+                stderr_msg = result.stderr.decode()
+                self.logger.error(f"Failed to extract {ba2_path}: {stderr_msg} (Duration: {extraction_time:.2f}s)")
+                self.logger.debug(f"Archive2.exe stdout: {result.stdout.decode()}")
                 self.failed_extractions.append(ba2_path)
                 return False
         except Exception as e:
             self.logger.error(f"Error extracting {ba2_path}: {str(e)}")
+            self.logger.debug(f"Exception details: {type(e).__name__}")
             self.failed_extractions.append(ba2_path)
             return False
     
@@ -963,17 +985,36 @@ class BA2Handler:
             return False
         
         try:
+            import time
+            start_time = time.time()
+            
+            # Log repacking details in debug mode
+            if os.path.exists(source_dir):
+                file_count = sum([len(files) for _, _, files in os.walk(source_dir)])
+                self.logger.debug(f"Repacking BA2: {output_ba2} from {source_dir} ({file_count} files)")
+            else:
+                self.logger.warning(f"Source directory does not exist: {source_dir}")
+                return False
+            
             cmd = [self.archive2_path, "-create", source_dir, "-output", output_ba2]
+            self.logger.debug(f"Running command: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, timeout=300)
             
+            repack_time = time.time() - start_time
+            
             if result.returncode == 0:
-                self.logger.info(f"Successfully created: {output_ba2}")
+                output_size = os.path.getsize(output_ba2) if os.path.exists(output_ba2) else 0
+                self.logger.info(f"Successfully created: {output_ba2} (Duration: {repack_time:.2f}s, Size: {output_size / 1024 / 1024:.2f} MB)")
+                self.logger.debug(f"Archive2.exe stdout: {result.stdout.decode()}")
                 return True
             else:
-                self.logger.error(f"Failed to create {output_ba2}: {result.stderr.decode()}")
+                stderr_msg = result.stderr.decode()
+                self.logger.error(f"Failed to create {output_ba2}: {stderr_msg} (Duration: {repack_time:.2f}s)")
+                self.logger.debug(f"Archive2.exe stdout: {result.stdout.decode()}")
                 return False
         except Exception as e:
             self.logger.error(f"Error creating {output_ba2}: {str(e)}")
+            self.logger.debug(f"Exception details: {type(e).__name__}")
             return False
     
     def create_cc_master_backup(self, fo4_path: str) -> bool:
