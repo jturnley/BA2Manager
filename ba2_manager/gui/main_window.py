@@ -139,7 +139,7 @@ class MainWindow(QMainWindow):
     
     def detect_mo2_installation(self) -> Path:
         """
-        Search for ModOrganizer.ini in current and parent directories.
+        Search for ModOrganizer.ini in current, parent, and sibling directories.
         Useful if the app is placed inside or near the MO2 folder.
         """
         # Check current dir and up to 3 levels up
@@ -149,10 +149,21 @@ class MainWindow(QMainWindow):
         
         search_paths = [current, exe_dir] + list(current.parents)[:3] + list(exe_dir.parents)[:3]
         
+        # Check direct paths first
         for path in search_paths:
             ini_path = path / "ModOrganizer.ini"
             if ini_path.exists():
                 return path
+        
+        # Check sibling directories for mo2_fo4 or MO2 folders
+        for path in [current, exe_dir]:
+            if path.parent.exists():
+                for sibling in path.parent.iterdir():
+                    if sibling.is_dir() and sibling.name.lower() in ['mo2_fo4', 'mo2', 'mods']:
+                        ini_path = sibling / "ModOrganizer.ini"
+                        if ini_path.exists():
+                            return sibling
+        
         return None
 
     def init_ui(self):
