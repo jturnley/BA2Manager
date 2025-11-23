@@ -45,25 +45,26 @@ from dataclasses import dataclass
 @dataclass
 class BA2Info:
     """
-    Data structure representing a single BA2 file.
+    Data structure representing a single mod with its BA2 files.
     
     Attributes:
-        path: Full file path to the BA2 file
-        size: File size in bytes
-        mod_name: Display name of the mod (directory name or extracted from filename)
-        ba2_type: Type of BA2 - "main", "textures", "dlc", "cc", or "creation_store"
-        is_extracted: Boolean flag (for future: whether this BA2 is currently extracted)
-        file_count: Number of files contained in this BA2 (for future use)
+        mod_name: Display name of the mod (directory name)
+        has_main_ba2: Whether this mod has a main BA2 file
+        has_texture_ba2: Whether this mod has a texture BA2 file
+        main_extracted: Whether the main BA2 is currently extracted
+        texture_extracted: Whether the texture BA2 is currently extracted
+        total_size: Combined size of all BA2 files in bytes
+        has_backup: Whether a backup exists for this mod
         nexus_url: Optional URL to the mod's Nexus page
     
     Used by list_ba2_mods() to return mod BA2 information to the GUI.
     """
-    path: str
-    size: int
     mod_name: str
-    ba2_type: str = "main"  # main, textures, dlc, cc, creation_store
-    is_extracted: bool = False
-    file_count: int = 0
+    has_main_ba2: bool = False
+    has_texture_ba2: bool = False
+    main_extracted: bool = False
+    texture_extracted: bool = False
+    total_size: int = 0
     has_backup: bool = False
     nexus_url: Optional[str] = None
 
@@ -700,26 +701,25 @@ class BA2Handler:
 
     def list_ba2_mods(self) -> List[BA2Info]:
         """
-        List all BA2 mod files and extracted mods.
+        List all BA2 mod files with separate tracking of main and texture BA2s.
         
-        Scans both the MO2 mods directory for BA2 files AND the backup directory
-        for extracted mods.
+        For each mod, tracks:
+        - Whether it has a main BA2 file (not ending in " - textures.ba2")
+        - Whether it has a texture BA2 file (ending in " - textures.ba2")
+        - Whether each is currently extracted
+        - Total size of all BA2 files
         
         Returns:
             List of BA2Info objects sorted by mod name
         """
-        ba2_files = []
+        ba2_mods = {}
         mods_path = Path(self.mo2_dir)
         backup_path = Path(self.backup_dir)
         
         # Get list of active mods from modlist.txt
         active_mods = self._get_active_mods()
         
-        # Dictionary to aggregate mod info
-        # Key: mod_name, Value: {path, size, file_count, replacement_count, has_backup}
-        mods_data = {}
-        
-        # 1. Scan for BA2 files in mods directory (Normal state)
+        # 1. Scan for BA2 files in mods directory
         if mods_path.exists():
             try:
                 for ba2_file in mods_path.rglob("*.ba2"):
@@ -731,26 +731,27 @@ class BA2Handler:
                             self.logger.debug(f"Skipping BA2 from inactive mod: {mod_name}")
                             continue
                         
-                        if mod_name not in mods_data:
-                            mods_data[mod_name] = {
-                                'path': str(ba2_file.parent),
-                                'size': 0,
-                                'file_count': 0,
-                                'replacement_count': 0,
-                                'has_backup': (backup_path / mod_name).exists()
+                        # Initialize mod entry if needed
+                        if mod_name not in ba2_mods:
+                            ba2_mods[mod_name] = {
+                                'has_main': False,
+                                'has_texture': False,
+                                'main_extracted': False,
+                                'texture_extracted': False,
+                                'total_size': 0,
+                                'has_backup': (backup_path / mod_name).exists(),
+                                'nexus_url': self._get_nexus_url(ba2_file.parent)
                             }
                         
-                        # Update stats
-                        try:
-                            mods_data[mod_name]['size'] += ba2_file.stat().st_size
-                        except (OSError, IOError):
-                            pass
-                            
-                        mods_data[mod_name]['file_count'] += 1
+                        # Categorize BA2 file
+                        is_texture = ba2_file.name.lower().endswith(" - textures.ba2")
+                        file_size = ba2_file.stat().st_size
+                        ba2_mods[mod_name]['total_size'] += file_size
                         
-                        # Check if this is a vanilla replacement file
-                        if ba2_file.name.lower() in self.vanilla_ba2_names:
-                            mods_data[mod_name]['replacement_count'] += 1
+                        if is_texture:
+                            ba2_mods[mod_name]['has_texture'] = True
+                        else:
+                            ba2_mods[mod_name]['has_main'] = True
                             
                     except Exception as e:
                         self.logger.warning(f"Error processing BA2 file {ba2_file}: {e}")
@@ -760,59 +761,64 @@ class BA2Handler:
         else:
             self.logger.info(f"Mods directory does not exist: {self.mo2_dir}")
 
-        # 2. Convert to BA2Info list, filtering out pure replacements
-        for mod_name, data in mods_data.items():
-            # FILTER: If all files are replacements, skip this mod
-            if data['file_count'] > 0 and data['file_count'] == data['replacement_count']:
-                # self.logger.info(f"Skipping vanilla replacement mod: {mod_name}")
-                continue
-                
-            ba2_files.append(BA2Info(
-                path=data['path'],
-                size=data['size'],
-                mod_name=mod_name,
-                is_extracted=False,
-                file_count=data['file_count'],
-                has_backup=data['has_backup'],
-                nexus_url=self._get_nexus_url(Path(data['path']))
-            ))
-            
-        # 3. Scan for extracted mods in backup directory
+        # 2. Check backup directory for extracted mods
         if backup_path.exists():
             try:
                 for mod_backup in backup_path.iterdir():
                     if mod_backup.is_dir():
                         mod_name = mod_backup.name
                         
-                        # If we already found this mod in the mods dir (with BA2s), 
-                        # it means it's not fully extracted or something is weird.
-                        if mod_name in mods_data:
+                        # If mod still has BA2 files in live directory, skip it
+                        # (it's not fully extracted)
+                        if mod_name in ba2_mods:
+                            # But mark the backup as existing
+                            ba2_mods[mod_name]['has_backup'] = True
                             continue
-                            
-                        # This is an extracted mod
-                        # We don't know the size of the BA2s since they are extracted/gone from live.
-                        # We could check the backup size?
-                        # Let's sum up BA2 sizes in the backup.
+                        
+                        # This mod has been extracted - look for BA2s in backup to determine type
+                        main_ba2_in_backup = False
+                        texture_ba2_in_backup = False
                         backup_size = 0
-                        ba2_count = 0
+                        
                         for f in mod_backup.rglob("*.ba2"):
                             backup_size += f.stat().st_size
-                            ba2_count += 1
-                            
-                        ba2_files.append(BA2Info(
-                            path=str(mods_path / mod_name), # Path where it SHOULD be
-                            size=backup_size,
-                            mod_name=mod_name,
-                            is_extracted=True,
-                            file_count=ba2_count,
-                            has_backup=True,
-                            nexus_url=self._get_nexus_url(mods_path / mod_name)
-                        ))
+                            if f.name.lower().endswith(" - textures.ba2"):
+                                texture_ba2_in_backup = True
+                            else:
+                                main_ba2_in_backup = True
                         
+                        # Only add if there are BA2s in the backup
+                        if main_ba2_in_backup or texture_ba2_in_backup:
+                            ba2_mods[mod_name] = {
+                                'has_main': main_ba2_in_backup,
+                                'has_texture': texture_ba2_in_backup,
+                                'main_extracted': main_ba2_in_backup,  # If it's only in backup, it's extracted
+                                'texture_extracted': texture_ba2_in_backup,
+                                'total_size': backup_size,
+                                'has_backup': True,
+                                'nexus_url': self._get_nexus_url(mods_path / mod_name)
+                            }
+                            
             except Exception as e:
                 self.logger.error(f"Error listing backups in {self.backup_dir}: {e}")
         
-        return sorted(ba2_files, key=lambda x: x.mod_name)
+        # 3. Convert to BA2Info list
+        result = []
+        for mod_name, data in ba2_mods.items():
+            # Only include mods that have at least one BA2 file (main or texture)
+            if data['has_main'] or data['has_texture']:
+                result.append(BA2Info(
+                    mod_name=mod_name,
+                    has_main_ba2=data['has_main'],
+                    has_texture_ba2=data['has_texture'],
+                    main_extracted=data['main_extracted'],
+                    texture_extracted=data['texture_extracted'],
+                    total_size=data['total_size'],
+                    has_backup=data['has_backup'],
+                    nexus_url=data['nexus_url']
+                ))
+        
+        return sorted(result, key=lambda x: x.mod_name)
     
     def extract_ba2_file(self, ba2_path: str, output_dir: str = None) -> bool:
         """Extract a BA2 file using Archive2.exe
@@ -1226,4 +1232,146 @@ class BA2Handler:
             
         except Exception as e:
             self.logger.error(f"Error restoring mod {mod_name}: {e}")
+            return False
+
+    def extract_mod_ba2(self, mod_name: str, ba2_type: str, create_backup: bool = True) -> bool:
+        """
+        Extract a specific BA2 file (main or texture) from a mod to loose files.
+        
+        Args:
+            mod_name: Name of the mod folder
+            ba2_type: "main" or "texture"
+            create_backup: If True, create a backup before extraction (only if needed)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        mod_path = Path(self.mo2_dir) / mod_name
+        backup_path = Path(self.backup_dir) / mod_name
+        
+        if not mod_path.exists():
+            self.logger.error(f"Mod path not found: {mod_path}")
+            return False
+            
+        if not self.archive2_path or not os.path.exists(self.archive2_path):
+            self.logger.error("Archive2.exe not found")
+            return False
+        
+        try:
+            # 1. Find BA2 files of the specified type
+            ba2_files = []
+            for ba2_file in mod_path.rglob("*.ba2"):
+                ba2_name = ba2_file.name.lower()
+                is_texture = ba2_name.endswith(" - textures.ba2")
+                
+                if ba2_type == "texture" and is_texture:
+                    ba2_files.append(ba2_file)
+                elif ba2_type == "main" and not is_texture:
+                    ba2_files.append(ba2_file)
+            
+            if not ba2_files:
+                self.logger.warning(f"No {ba2_type} BA2 files found in {mod_name}")
+                return True  # Already extracted or doesn't have this type
+            
+            # 2. Create backup if requested and doesn't exist
+            if create_backup and not backup_path.exists():
+                self.logger.info(f"Creating backup for {mod_name}...")
+                shutil.copytree(mod_path, backup_path)
+            
+            # 3. Extract BA2 files
+            for ba2_file in ba2_files:
+                self.logger.info(f"Extracting {ba2_file.name}...")
+                
+                cmd = f'"{self.archive2_path}" "{ba2_file}" -extract="{mod_path}"'
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+                result = subprocess.run(cmd, capture_output=True, startupinfo=startupinfo)
+                
+                if result.returncode != 0:
+                    self.logger.error(f"Failed to extract {ba2_file.name}: {result.stderr.decode()}")
+                    return False
+            
+            # 4. Delete extracted BA2 files
+            self.logger.info(f"Removing extracted {ba2_type} BA2 files...")
+            for ba2_file in ba2_files:
+                os.remove(ba2_file)
+            
+            self.logger.info(f"Successfully extracted {ba2_type} BA2 for {mod_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error extracting {ba2_type} BA2 for {mod_name}: {e}")
+            return False
+
+    def restore_mod_ba2(self, mod_name: str, ba2_type: str) -> bool:
+        """
+        Restore a specific BA2 file (main or texture) from backup.
+        
+        If both main and texture BA2s are restored, also remove the backup folder.
+        
+        Args:
+            mod_name: Name of the mod folder
+            ba2_type: "main" or "texture"
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        mod_path = Path(self.mo2_dir) / mod_name
+        backup_path = Path(self.backup_dir) / mod_name
+        
+        if not backup_path.exists():
+            self.logger.error(f"Backup not found for {mod_name}")
+            return False
+        
+        try:
+            self.logger.info(f"Restoring {ba2_type} BA2 for {mod_name} from backup...")
+            
+            # Find BA2 files of the specified type in backup
+            ba2_files_to_restore = []
+            for ba2_file in backup_path.rglob("*.ba2"):
+                ba2_name = ba2_file.name.lower()
+                is_texture = ba2_name.endswith(" - textures.ba2")
+                
+                if ba2_type == "texture" and is_texture:
+                    ba2_files_to_restore.append(ba2_file)
+                elif ba2_type == "main" and not is_texture:
+                    ba2_files_to_restore.append(ba2_file)
+            
+            if not ba2_files_to_restore:
+                self.logger.warning(f"No {ba2_type} BA2 files in backup for {mod_name}")
+                return True
+            
+            # Copy BA2 files from backup to mod folder
+            for backup_ba2 in ba2_files_to_restore:
+                relative_path = backup_ba2.relative_to(backup_path)
+                target_ba2 = mod_path / relative_path
+                
+                # Create parent directory if needed
+                target_ba2.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Copy file
+                shutil.copy2(backup_ba2, target_ba2)
+                self.logger.info(f"Restored {backup_ba2.name}")
+            
+            # Check if all BA2s have been restored (nothing left to extract)
+            # If so, we can delete the backup
+            remaining_extracted = False
+            for item in mod_path.rglob("*"):
+                if item.is_file():
+                    # If there are non-BA2 files, mod is still partially extracted
+                    if not item.name.lower().endswith(".ba2"):
+                        remaining_extracted = True
+                        break
+            
+            # Delete backup only if nothing remains extracted
+            if not remaining_extracted:
+                self.logger.info(f"All BA2s restored, removing backup for {mod_name}")
+                shutil.rmtree(backup_path)
+            
+            self.logger.info(f"Successfully restored {ba2_type} BA2 for {mod_name}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error restoring {ba2_type} BA2 for {mod_name}: {e}")
             return False

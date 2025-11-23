@@ -707,16 +707,17 @@ class MainWindow(QMainWindow):
         manage_layout.addWidget(backup_label)
         
         # === MOD LIST ===
-        # The list displays all BA2 mods from the MO2 mods directory with checkboxes
-        # Each item is a QTableWidgetItem with ItemIsUserCheckable flag enabled
+        # New layout: Mod Name | Main BA2 (checkbox) | Texture BA2 (checkbox) | Nexus Link
         list_label = QLabel("Available BA2 Mods:")
         manage_layout.addWidget(list_label)
         
         self.mod_list = QTableWidget()
-        self.mod_list.setColumnCount(2)
-        self.mod_list.setHorizontalHeaderLabels(["Mod Name", "Nexus Link"])
+        self.mod_list.setColumnCount(4)
+        self.mod_list.setHorizontalHeaderLabels(["Mod Name", "Main BA2", "Texture BA2", "Nexus Link"])
         self.mod_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.mod_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.mod_list.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.mod_list.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.mod_list.verticalHeader().setVisible(False)
         self.mod_list.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         
@@ -1014,64 +1015,85 @@ class MainWindow(QMainWindow):
     
     def load_mod_list(self):
         """
-        Load and populate the mod list.
+        Load and populate the mod list with separate Main and Texture BA2 checkboxes.
         
-        IMPLEMENTATION NOTES:
-        - QTableWidgetItem with CheckState sets initial checkbox state
-        - Qt.ItemFlag.ItemIsUserCheckable enables checkbox interaction
-        - UserRole data stores the actual mod name for reference
-        - Index maps directly to mod_extracted_status dict
-        - Checkbox checked = extract to loose files; unchecked = BA2 archive format (default)
+        Table layout:
+        - Column 0: Mod Name (display only)
+        - Column 1: Main BA2 (checkbox if mod has main BA2, empty otherwise)
+        - Column 2: Texture BA2 (checkbox if mod has texture BA2, empty otherwise)
+        - Column 3: Nexus Link (clickable link if available)
+        
+        Checkbox states:
+        - Unchecked (empty): Not extracted / BA2 is present
+        - Checked (white): Selected to be extracted
+        - Green checked: Already extracted / in backup only
         """
         try:
             mods = self.ba2_handler.list_ba2_mods()
             self.mod_list.setRowCount(0)  # Clear table
-            self.mod_extracted_status = {}
+            # Track extraction state per mod: {mod_name: {'main': bool, 'texture': bool}}
+            self.mod_ba2_state = {}
             
             for i, mod in enumerate(mods):
                 self.mod_list.insertRow(i)
+                mod_key = mod.mod_name
                 
-                # === FORMAT DISPLAY TEXT ===
-                size_mb = mod.size / 1024 / 1024
-                item_text = f"{mod.mod_name} ({size_mb:.1f} MB)"
+                # Initialize state tracking for this mod
+                self.mod_ba2_state[mod_key] = {
+                    'main': mod.main_extracted,
+                    'texture': mod.texture_extracted
+                }
                 
-                # === CREATE MOD NAME ITEM WITH CHECKBOX (Column 0) ===
-                item = QTableWidgetItem(item_text)
-                item.setData(Qt.ItemDataRole.UserRole, mod.mod_name)  # Store mod name for reference
+                # === COLUMN 0: MOD NAME ===
+                size_mb = mod.total_size / 1024 / 1024
+                mod_name_item = QTableWidgetItem(f"{mod.mod_name} ({size_mb:.1f} MB)")
+                mod_name_item.setData(Qt.ItemDataRole.UserRole, mod_key)
+                mod_name_item.setFlags(mod_name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)  # Read-only
+                self.mod_list.setItem(i, 0, mod_name_item)
                 
-                # Set state based on whether mod is already extracted
-                if mod.is_extracted:
-                    item.setCheckState(Qt.CheckState.Checked)
-                    item.setForeground(QColor("#4CAF50"))  # Green for extracted
-                    item.setToolTip("Status: Extracted (No BA2s found, Backup exists)")
-                    self.mod_extracted_status[i] = True
-                else:
-                    item.setCheckState(Qt.CheckState.Unchecked)
-                    self.mod_extracted_status[i] = False
+                # === COLUMN 1: MAIN BA2 CHECKBOX ===
+                if mod.has_main_ba2:
+                    main_checkbox = QTableWidgetItem()
+                    main_checkbox.setFlags(main_checkbox.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                     
-                    if mod.has_backup:
-                        # Backup exists but BA2s are present -> Not fully extracted or restored
-                        item.setToolTip("Status: Not Extracted (BA2s present). Backup exists.")
+                    if mod.main_extracted:
+                        # Already extracted - show green
+                        main_checkbox.setCheckState(Qt.CheckState.Checked)
+                        main_checkbox.setForeground(QColor("#4CAF50"))
                     else:
-                        item.setToolTip("Status: Not Extracted (BA2s present)")
+                        # Not extracted yet
+                        main_checkbox.setCheckState(Qt.CheckState.Unchecked)
                     
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)  # Enable checkbox
-                self.mod_list.setItem(i, 0, item)
+                    self.mod_list.setItem(i, 1, main_checkbox)
                 
-                # === CREATE NEXUS LINK ITEM (Column 1) ===
+                # === COLUMN 2: TEXTURE BA2 CHECKBOX ===
+                if mod.has_texture_ba2:
+                    texture_checkbox = QTableWidgetItem()
+                    texture_checkbox.setFlags(texture_checkbox.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    
+                    if mod.texture_extracted:
+                        # Already extracted - show green
+                        texture_checkbox.setCheckState(Qt.CheckState.Checked)
+                        texture_checkbox.setForeground(QColor("#4CAF50"))
+                    else:
+                        # Not extracted yet
+                        texture_checkbox.setCheckState(Qt.CheckState.Unchecked)
+                    
+                    self.mod_list.setItem(i, 2, texture_checkbox)
+                
+                # === COLUMN 3: NEXUS LINK ===
                 if mod.nexus_url:
                     link_label = QLabel(f'<a href="{mod.nexus_url}">Nexus Page</a>')
                     link_label.setOpenExternalLinks(True)
                     link_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    self.mod_list.setCellWidget(i, 1, link_label)
-                else:
-                    self.mod_list.setItem(i, 1, QTableWidgetItem(""))
-
+                    self.mod_list.setCellWidget(i, 3, link_label)
+            
             # === UPDATE STATUS ===
             if not mods:
                 self.mod_status.setText("No BA2 mods found in MO2 directory")
             else:
                 self.mod_status.setText(f"Found {len(mods)} BA2 mod(s)")
+                
         except Exception as e:
             self.mod_status.setText(f"Error loading mods: {str(e)}")
     
@@ -1116,13 +1138,18 @@ class MainWindow(QMainWindow):
     
     def apply_mod_changes(self):
         """
-        Execute extraction/restoration based on checkbox states.
+        Execute extraction/restoration based on checkbox states for individual BA2 files.
         
-        NEW WORKFLOW:
-        - User checks boxes -> items turn GREY (pending extraction)
+        NEW WORKFLOW (per BA2 file):
+        - User checks box -> item turns GREY (pending extraction)
         - User clicks "Apply Changes" -> extraction happens
-        - After completion -> items turn GREEN (extraction complete)
+        - After completion -> item turns GREEN (extraction complete)
         - User unchecks box -> item turns BLACK (restored/normal)
+        
+        BACKUP LOGIC:
+        - If EITHER main or texture checkbox is checked, back up the entire mod for restore
+        - If ONLY ONE is already green (extracted) and the OTHER is checked, don't create new backup
+        - The backup from the first extraction covers both BA2 files
         """
         changes_made = False
         extracted_count = 0
@@ -1136,46 +1163,90 @@ class MainWindow(QMainWindow):
         
         try:
             for i in range(self.mod_list.rowCount()):
-                item = self.mod_list.item(i, 0)
-                mod_name = item.data(Qt.ItemDataRole.UserRole)
+                # Get mod name from column 0
+                name_item = self.mod_list.item(i, 0)
+                if not name_item:
+                    continue
                 
+                mod_name = name_item.data(Qt.ItemDataRole.UserRole)
                 if not mod_name:
                     continue
                 
-                # === CHECK CURRENT CHECKBOX STATE ===
-                is_checked = item.checkState() == Qt.CheckState.Checked
+                # Get main and texture checkbox items (columns 1 and 2)
+                main_item = self.mod_list.item(i, 1)
+                texture_item = self.mod_list.item(i, 2)
                 
-                # === GET TRACKED STATE ===
-                was_extracted = self.mod_extracted_status.get(i, False)
+                # Check if checkboxes are present and their current states
+                main_checked = main_item and main_item.checkState() == Qt.CheckState.Checked
+                texture_checked = texture_item and texture_item.checkState() == Qt.CheckState.Checked
                 
-                # === DETECT STATE CHANGE ===
-                if is_checked != was_extracted:
-                    changes_made = True
-                    
-                    if is_checked:
-                        # User checked box -> EXTRACT this mod
-                        self.pending_extraction(i)
-                        QApplication.processEvents()
+                # Get tracked states (what was extracted before this operation)
+                mod_state = self.mod_ba2_state.get(mod_name, {})
+                main_was_extracted = mod_state.get('main', False)
+                texture_was_extracted = mod_state.get('texture', False)
+                
+                # Determine if we need to back up (before any extraction)
+                need_backup = False
+                if (main_checked and not main_was_extracted) or (texture_checked and not texture_was_extracted):
+                    need_backup = True
+                
+                # === PROCESS MAIN BA2 ===
+                if main_item:
+                    if main_checked != main_was_extracted:
+                        changes_made = True
                         
-                        if self.ba2_handler.extract_mod(mod_name):
-                            self.mark_mod_extracted(i)
-                            extracted_count += 1
-                        else:
-                            # Failed - revert visual state
-                            item.setCheckState(Qt.CheckState.Unchecked)
-                            self.unmark_mod_extracted(i)
-                            failed_count += 1
+                        if main_checked:
+                            # User checked -> EXTRACT main BA2
+                            # Only backup if this is the first file being extracted for this mod
+                            should_backup = need_backup and not texture_was_extracted
                             
-                    else:
-                        # User unchecked box -> RESTORE this mod
-                        if self.ba2_handler.restore_mod(mod_name):
-                            self.unmark_mod_extracted(i)
-                            restored_count += 1
+                            if self.ba2_handler.extract_mod_ba2(mod_name, "main", should_backup):
+                                main_item.setCheckState(Qt.CheckState.Checked)
+                                main_item.setForeground(QColor("#4CAF50"))
+                                self.mod_ba2_state[mod_name]['main'] = True
+                                extracted_count += 1
+                            else:
+                                main_item.setCheckState(Qt.CheckState.Unchecked)
+                                failed_count += 1
                         else:
-                            # Failed - revert visual state
-                            item.setCheckState(Qt.CheckState.Checked)
-                            self.mark_mod_extracted(i)
-                            failed_count += 1
+                            # User unchecked -> RESTORE main BA2
+                            if self.ba2_handler.restore_mod_ba2(mod_name, "main"):
+                                main_item.setCheckState(Qt.CheckState.Unchecked)
+                                main_item.setForeground(self.mod_list.palette().text())
+                                self.mod_ba2_state[mod_name]['main'] = False
+                                restored_count += 1
+                            else:
+                                main_item.setCheckState(Qt.CheckState.Checked)
+                                failed_count += 1
+                
+                # === PROCESS TEXTURE BA2 ===
+                if texture_item:
+                    if texture_checked != texture_was_extracted:
+                        changes_made = True
+                        
+                        if texture_checked:
+                            # User checked -> EXTRACT texture BA2
+                            # Only backup if main wasn't extracted yet (if we're extracting both, main handled backup)
+                            should_backup = need_backup and not main_was_extracted
+                            
+                            if self.ba2_handler.extract_mod_ba2(mod_name, "texture", should_backup):
+                                texture_item.setCheckState(Qt.CheckState.Checked)
+                                texture_item.setForeground(QColor("#4CAF50"))
+                                self.mod_ba2_state[mod_name]['texture'] = True
+                                extracted_count += 1
+                            else:
+                                texture_item.setCheckState(Qt.CheckState.Unchecked)
+                                failed_count += 1
+                        else:
+                            # User unchecked -> RESTORE texture BA2
+                            if self.ba2_handler.restore_mod_ba2(mod_name, "texture"):
+                                texture_item.setCheckState(Qt.CheckState.Unchecked)
+                                texture_item.setForeground(self.mod_list.palette().text())
+                                self.mod_ba2_state[mod_name]['texture'] = False
+                                restored_count += 1
+                            else:
+                                texture_item.setCheckState(Qt.CheckState.Checked)
+                                failed_count += 1
             
             # === REPORT RESULTS ===
             if not changes_made:
@@ -1183,9 +1254,9 @@ class MainWindow(QMainWindow):
             else:
                 message = "Operation complete!"
                 if extracted_count > 0:
-                    message += f"\nExtracted {extracted_count} mod(s)."
+                    message += f"\nExtracted {extracted_count} BA2 file(s)."
                 if restored_count > 0:
-                    message += f"\nRestored {restored_count} mod(s)."
+                    message += f"\nRestored {restored_count} BA2 file(s)."
                 if failed_count > 0:
                     message += f"\nFailed operations: {failed_count}. Check logs."
                 self.mod_status.setText(message)
