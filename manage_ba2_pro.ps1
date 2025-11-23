@@ -20,7 +20,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Archive2Path = Join-Path $ScriptDir "Archive2.exe"
 $MO2ModsDir = "mods"
 $BackupDir = Join-Path $ScriptDir "mod_backups"
-$LogFile = "BA2_Extract.log"
+$LogFile = "ba2-manager.log"
 $FailedExtractionsFile = "failed_extractions.txt"
 
 # ============================================

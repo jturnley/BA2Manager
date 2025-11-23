@@ -120,7 +120,7 @@ User Interface:
 Configuration:
   pyproject.toml                      ← Python packaging
   ba2_manager_config.json             ← User settings (auto-created)
-  BA2_Extract.log                     ← Operation logs
+  ba2-manager.log                     ← Operation logs
 ```
 
 ## Common Tasks

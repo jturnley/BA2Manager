@@ -98,7 +98,7 @@ from ba2_manager.core.ba2_handler import BA2Handler
 handler = BA2Handler(
     archive2_path="C:\\Path\\To\\Archive2.exe",
     mo2_dir="C:\\MO2\\mods",
-    log_file="BA2_Extract.log"
+    log_file="ba2-manager.log"
 )
 
 # Count BA2s
@@ -171,7 +171,7 @@ Settings are stored in `ba2_manager_config.json`:
   "archive2_path": "C:\\CreationKit\\Archive2.exe",
   "mo2_mods_dir": "C:\\MO2\\mods",
   "fo4_path": "C:\\Program Files\\Fallout4",
-  "log_file": "BA2_Extract.log",
+  "log_file": "ba2-manager.log",
   "backup_dir": "./mod_backups"
 }
 ```

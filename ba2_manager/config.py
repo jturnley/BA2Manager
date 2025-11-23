@@ -55,7 +55,7 @@ class Config:
         "archive2_path": "",           # User finds Archive2.exe
         "mo2_mods_dir": "",            # Auto-derived from ModOrganizer.exe
         "fo4_path": "",                # User finds Fallout4.exe
-        "log_file": "BA2_Extract.log",  # Can use default
+        "log_file": "ba2-manager.log",  # Can use default
         "backup_dir": "",              # Auto-derived from MO2 root
         "debug_logging": False
     }

@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
                     self.config.set("archive2_path", str(archive2_candidate))
                     archive2_path = str(archive2_candidate)
                 
-        log_file = self.config.get("log_file", "BA2_Extract.log")
+        log_file = self.config.get("log_file", "ba2-manager.log")
         
         self.ba2_handler = BA2Handler(
             archive2_path=archive2_path if archive2_path else None,
@@ -1449,7 +1449,7 @@ class MainWindow(QMainWindow):
             self.ba2_handler = BA2Handler(
                 archive2_path=self.config.get("archive2_path") or None,
                 mo2_dir=mods_path,
-                log_file=self.config.get("log_file", "BA2_Extract.log")
+                log_file=self.config.get("log_file", "ba2-manager.log")
             )
             
             self.update_settings_status()
@@ -1478,7 +1478,7 @@ class MainWindow(QMainWindow):
             self.ba2_handler = BA2Handler(
                 archive2_path=file_path,
                 mo2_dir=self.config.get("mo2_mods_dir", "mods"),
-                log_file=self.config.get("log_file", "BA2_Extract.log")
+                log_file=self.config.get("log_file", "ba2-manager.log")
             )
             
             self.update_settings_status()
@@ -1614,7 +1614,7 @@ class MainWindow(QMainWindow):
             # Reinitialize BA2Handler with new paths
             mo2_mods_dir = self.config.get("mo2_mods_dir", "mods")
             archive2_path = self.config.get("archive2_path", "")
-            log_file = self.config.get("log_file", "BA2_Extract.log")
+            log_file = self.config.get("log_file", "ba2-manager.log")
             
             self.ba2_handler = BA2Handler(
                 archive2_path=archive2_path if archive2_path else None,
