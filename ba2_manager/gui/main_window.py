@@ -16,6 +16,7 @@ import os
 import winreg
 import webbrowser
 import sys
+import logging
 from typing import Optional
 
 
@@ -24,10 +25,21 @@ class MainWindow(QMainWindow):
     
     def __init__(self):
         super().__init__()
+        # Setup logging early
+        self.logger = logging.getLogger("ba2_manager.gui")
+        self.logger.debug("=== BA2 Manager Initialization Starting ===")
+        self.logger.debug(f"Python version: {sys.version}")
+        self.logger.debug(f"PyQt6 version: PyQt6")
+        
         self.config = Config()
         
         # Detect MO2 installation first to establish a portable root
+        self.logger.debug("Detecting MO2 installation...")
         mo2_root = self.detect_mo2_installation()
+        if mo2_root:
+            self.logger.debug(f"MO2 root found: {mo2_root}")
+        else:
+            self.logger.debug("MO2 root not found, using portable mode")
         
         # Initialize paths with defaults or detection
         mo2_mods_dir = self.config.get("mo2_mods_dir", "")
@@ -40,8 +52,10 @@ class MainWindow(QMainWindow):
                 else:
                     mo2_mods_dir = str(mo2_root / "mods")
                 self.config.set("mo2_mods_dir", mo2_mods_dir)
+                self.logger.debug(f"Set mo2_mods_dir: {mo2_mods_dir}")
             else:
                 mo2_mods_dir = "mods"
+                self.logger.debug("Using default mods directory: mods")
 
         # Enforce portable backup directory structure
         # If we found MO2, backups go to MO2/BA2_Manager_Backups
@@ -51,35 +65,50 @@ class MainWindow(QMainWindow):
         if mo2_root:
             backup_dir = str(mo2_root / "BA2_Manager_Backups")
             self.config.set("backup_dir", backup_dir)
+            self.logger.debug(f"Set backup_dir (MO2): {backup_dir}")
         elif not backup_dir:
             backup_dir = "BA2_Manager_Backups"
             self.config.set("backup_dir", backup_dir)
+            self.logger.debug(f"Set backup_dir (portable): {backup_dir}")
 
         archive2_path = self.config.get("archive2_path", "")
         fo4_path = self.config.get("fo4_path", "")
         
         # Auto-detect FO4 path from MO2 if missing
         if not fo4_path and mo2_root:
+            self.logger.debug("Detecting Fallout 4 path from MO2...")
             detected_fo4 = self.detect_fo4_from_mo2(mo2_root)
             if detected_fo4:
                 self.config.set("fo4_path", detected_fo4)
                 fo4_path = detected_fo4
+                self.logger.debug(f"Fallout 4 path detected: {detected_fo4}")
+            else:
+                self.logger.debug("Fallout 4 path not found in MO2")
 
         # Auto-detect Archive2 if missing
         if not archive2_path:
+            self.logger.debug("Detecting Archive2.exe...")
             # Try registry first
             detected = self.detect_archive2_from_registry()
             if detected:
                 self.config.set("archive2_path", detected)
                 archive2_path = detected
+                self.logger.debug(f"Archive2.exe found in registry: {detected}")
             # If not in registry, try FO4 path if we have it
             elif fo4_path:
+                self.logger.debug(f"Checking Fallout 4 Tools directory...")
                 archive2_candidate = Path(fo4_path) / "Tools" / "Archive2" / "Archive2.exe"
                 if archive2_candidate.exists():
                     self.config.set("archive2_path", str(archive2_candidate))
                     archive2_path = str(archive2_candidate)
+                    self.logger.debug(f"Archive2.exe found in FO4 tools: {archive2_candidate}")
+                else:
+                    self.logger.debug(f"Archive2.exe not found at: {archive2_candidate}")
+        else:
+            self.logger.debug(f"Archive2.exe already configured: {archive2_path}")
                 
         log_file = self.config.get("log_file", "ba2-manager.log")
+        self.logger.debug(f"Log file: {log_file}")
         
         self.ba2_handler = BA2Handler(
             archive2_path=archive2_path if archive2_path else None,
@@ -87,6 +116,7 @@ class MainWindow(QMainWindow):
             backup_dir=backup_dir,
             log_file=log_file
         )
+        self.logger.debug("=== BA2 Manager Initialization Complete ===")
         self.current_view = None
         
         # Blink timer for danger state
@@ -103,9 +133,11 @@ class MainWindow(QMainWindow):
         """
         ini_path = mo2_root / "ModOrganizer.ini"
         if not ini_path.exists():
+            self.logger.debug(f"ModOrganizer.ini not found at: {ini_path}")
             return None
             
         try:
+            self.logger.debug(f"Checking ModOrganizer.ini for custom mod_directory: {ini_path}")
             with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
                 in_settings = False
                 for line in f:
@@ -120,6 +152,7 @@ class MainWindow(QMainWindow):
                     if in_settings and line.startswith("mod_directory="):
                         value = line.split("=", 1)[1].strip()
                         if not value:
+                            self.logger.debug("mod_directory setting is empty")
                             return None
                         
                         # Handle @ByteArray if present
@@ -130,10 +163,14 @@ class MainWindow(QMainWindow):
                         
                         path_val = Path(value)
                         if path_val.is_absolute():
+                            self.logger.debug(f"Custom mod_directory found: {path_val}")
                             return path_val
                         else:
-                            return mo2_root / path_val
-        except Exception:
+                            resolved = mo2_root / path_val
+                            self.logger.debug(f"Custom mod_directory found (relative): {resolved}")
+                            return resolved
+        except Exception as e:
+            self.logger.debug(f"Error reading ModOrganizer.ini: {e}")
             pass
         return None
     
@@ -149,21 +186,31 @@ class MainWindow(QMainWindow):
         
         search_paths = [current, exe_dir] + list(current.parents)[:3] + list(exe_dir.parents)[:3]
         
+        self.logger.debug(f"Searching for ModOrganizer.ini in {len(search_paths)} paths:")
+        self.logger.debug(f"  Current dir: {current}")
+        self.logger.debug(f"  Exe dir: {exe_dir}")
+        
         # Check direct paths first
         for path in search_paths:
             ini_path = path / "ModOrganizer.ini"
             if ini_path.exists():
+                self.logger.debug(f"ModOrganizer.ini found at: {ini_path}")
                 return path
+            self.logger.debug(f"  Checked (not found): {ini_path}")
         
         # Check sibling directories for mo2_fo4 or MO2 folders
+        self.logger.debug("Checking sibling directories...")
         for path in [current, exe_dir]:
             if path.parent.exists():
                 for sibling in path.parent.iterdir():
                     if sibling.is_dir() and sibling.name.lower() in ['mo2_fo4', 'mo2', 'mods']:
                         ini_path = sibling / "ModOrganizer.ini"
                         if ini_path.exists():
+                            self.logger.debug(f"ModOrganizer.ini found in sibling: {ini_path}")
                             return sibling
+                        self.logger.debug(f"  Sibling checked (not found): {ini_path}")
         
+        self.logger.debug("ModOrganizer.ini not found in any search path")
         return None
 
     def init_ui(self):
@@ -528,6 +575,7 @@ class MainWindow(QMainWindow):
     
     def show_ba2_info(self):
         """Show BA2 information view"""
+        self.logger.debug("User navigated to BA2 Info tab")
         self.clear_content()
         
         info_widget = QWidget()
@@ -684,6 +732,7 @@ class MainWindow(QMainWindow):
         - This tracks the CURRENT state after operations, not the initial state
         - Used to detect changes: if checkbox state != tracked state, operation is needed
         """
+        self.logger.debug("User navigated to Manage Mods tab")
         self.clear_content()
         
         manage_widget = QWidget()
@@ -821,6 +870,7 @@ class MainWindow(QMainWindow):
     
     def show_settings(self):
         """Show settings view"""
+        self.logger.debug("User navigated to Settings tab")
         self.clear_content()
         
         settings_widget = QWidget()
@@ -1733,3 +1783,4 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
         
         QMessageBox.information(self, "MIT License", license_text)
+
