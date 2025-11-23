@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface"""
-        self.setWindowTitle("BA2 Manager Pro")
+        self.setWindowTitle("BA2 Manager")
         # Set a smaller, more compact default size (approx 800x600)
         self.setGeometry(100, 100, 800, 600)
         self.setMinimumSize(750, 550)
@@ -241,7 +241,7 @@ class MainWindow(QMainWindow):
         """Create header with title and disclaimer"""
         layout = QVBoxLayout()
         
-        title = QLabel("BA2 Manager Pro")
+        title = QLabel("BA2 Manager")
         title_font = QFont()
         title_font.setPointSize(18)
         title_font.setBold(True)
