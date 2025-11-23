@@ -1263,6 +1263,9 @@ class MainWindow(QMainWindow):
                     message += f"\nFailed operations: {failed_count}. Check logs."
                 self.mod_status.setText(message)
                 
+                # Refresh the mod list to show updated extraction states
+                self.load_mod_list()
+                
                 # Refresh the BA2 count bar
                 self.refresh_ba2_count()
                 
