@@ -333,6 +333,7 @@ class MainWindow(QMainWindow):
         self.ba2_main_progress.setValue(0)
         self.ba2_main_progress.setTextVisible(False)
         self.ba2_main_progress.setFixedWidth(25)
+        self.ba2_main_progress.setMinimumHeight(200)
         self.update_ba2_bar_style_main(0, 255)
         main_bar_container.addWidget(self.ba2_main_progress)
         main_bar_container.addStretch()
@@ -359,18 +360,11 @@ class MainWindow(QMainWindow):
         self.ba2_texture_progress.setValue(0)
         self.ba2_texture_progress.setTextVisible(False)
         self.ba2_texture_progress.setFixedWidth(25)
+        self.ba2_texture_progress.setMinimumHeight(200)
         self.update_ba2_bar_style_texture(0, 254)
         texture_bar_container.addWidget(self.ba2_texture_progress)
         texture_bar_container.addStretch()
         bar_layout.addLayout(texture_bar_container)
-        
-        # Thresholds info
-        thresholds = QLabel("Main: 0-255\nTextures: 0-254")
-        thresholds_font = QFont()
-        thresholds_font.setPointSize(7)
-        thresholds.setFont(thresholds_font)
-        thresholds.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        bar_layout.addWidget(thresholds)
         
         bar_widget.setLayout(bar_layout)
         bar_widget.setMaximumWidth(90)
@@ -583,6 +577,16 @@ class MainWindow(QMainWindow):
         self.info_status.setReadOnly(True)
         self.info_status.setMaximumHeight(60)
         info_layout.addWidget(self.info_status)
+        
+        # Warning messages
+        warning_layout = QVBoxLayout()
+        warning1 = QLabel("⚠ Exceeding 255 Main BA2 files will cause the game to crash on startup.")
+        warning1.setStyleSheet("color: #FF0000; font-weight: bold;")
+        warning2 = QLabel("⚠ Exceeding 254 Texture BA2 files will cause graphical corruption in your game.")
+        warning2.setStyleSheet("color: #FF0000; font-weight: bold;")
+        warning_layout.addWidget(warning1)
+        warning_layout.addWidget(warning2)
+        info_layout.addLayout(warning_layout)
         
         info_layout.addStretch()
         info_widget.setLayout(info_layout)
