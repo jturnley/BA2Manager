@@ -598,11 +598,12 @@ class MainWindow(QMainWindow):
         mods_layout.addWidget(self.info_mods_texture, 1)
         group_layout.addLayout(mods_layout)
         
-        self.info_replacements = QLabel("--")
+        self.info_replacements_main = QLabel("--")
+        self.info_replacements_texture = QLabel("--")
         replacements_layout = QHBoxLayout()
         replacements_layout.addWidget(QLabel("Vanilla Replacements: (not counted)"), 2)
-        replacements_layout.addWidget(self.info_replacements, 1)
-        replacements_layout.addWidget(QLabel(""), 1)
+        replacements_layout.addWidget(self.info_replacements_main, 1)
+        replacements_layout.addWidget(self.info_replacements_texture, 1)
         group_layout.addLayout(replacements_layout)
         
         # Separator
@@ -988,8 +989,9 @@ class MainWindow(QMainWindow):
             self.safe_set_text('info_mods_main', str(counts["mod_main"]))
             self.safe_set_text('info_mods_texture', str(counts.get("mod_textures", 0)))
             
-            # Replacements (just show the count, no texture split needed)
-            self.safe_set_text('info_replacements', str(counts['replacements']))
+            # Replacements with separate main/texture counts
+            self.safe_set_text('info_replacements_main', str(counts.get("replacement_main", 0)))
+            self.safe_set_text('info_replacements_texture', str(counts.get("replacement_textures", 0)))
             
             # Total
             main_str = f"{main_total}/255"
