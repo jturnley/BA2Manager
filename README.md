@@ -1,23 +1,31 @@
-# BA2 Manager Pro v1.0.0
+# BA2 Manager Pro v1.1.0
 
-A comprehensive Python application for managing Fallout 4 BA2 archive files. This project recreates and enhances the functionality of the PowerShell `manage_ba2_pro.ps1` script as a professional GUI application.
+A comprehensive Python application for managing Fallout 4 BA2 archive files through Mod Organizer 2. This project recreates and enhances the functionality of the PowerShell `manage_ba2_pro.ps1` script as a professional cross-platform GUI application.
 
 ## Features
 
 ### Core Functionality
-- **Count BA2 Files**: View total BA2 count including base game, mods, and Creation Club content.
-- **Manage BA2 Mods**: Extract and restore BA2 files to manage Fallout 4's 255 BA2 file limit.
-- **Nexus Mod Links**: Automatically detects Nexus Mod IDs from `meta.ini` and provides direct links to mod pages.
-- **Manage Creation Club Content**: Enable/disable Creation Club (CC) content with a checkbox interface.
-- **View Extraction Logs**: Review detailed operation logs.
-- **Configuration Management**: Store and manage paths to Archive2.exe, MO2, and Fallout 4 installations.
+- **Smart BA2 Counting**: Separate tracking for Main BA2s (0-255 limit) and Texture BA2s (0-254 limit) with color-coded progress bars that turn red when limits are exceeded
+- **Active Mods Only**: Counts only mods enabled in MO2's modlist.txt, respecting disabled mods and disabled plugins
+- **Granular BA2 Management**: Extract/restore individual Main or Texture BA2s independently per mod
+- **Loose File Cleanup**: Automatically removes extracted loose files when all BA2s are restored (critical for Fallout 4 as loose files override BA2 contents)
+- **Load Order Protection**: Automatic backup of modlist.txt and plugins.txt on startup; never modifies load order during normal operations
+- **Real-time CC Monitoring**: Detects Creation Club enable/disable events and updates BA2 counts immediately
+- **Nexus Mod Integration**: Automatically detects Nexus Mod IDs from `meta.ini` and provides direct clickable links
+- **Creation Club Management**: Enable/disable CC content with automatic Fallout4.ccc updates
+- **Atomic Operations**: Extractions use temporary directories to prevent partial failures
+- **Backup Preservation**: Restore operations preserve backups until all BA2s are restored
+- **Custom MO2 Directories**: Automatically detects custom mod_directory settings from ModOrganizer.ini
+- **Comprehensive Logging**: Detailed operation logs with configurable debug mode
+- **Configuration Management**: Auto-detection and persistent storage of all paths
 
 ### Advantages Over PowerShell Script
-- **Cross-platform GUI**: Modern PyQt6 interface with sortable tables and direct links.
-- **Persistent Configuration**: Settings are saved automatically.
-- **Real-time Progress**: Visual feedback during extraction/restoration.
-- **Standalone Executable**: No Python installation required for end users.
-- **Safety Features**: Backup system for extracted mods and validation checks.
+- **Cross-platform GUI**: Modern PyQt6 interface works on Windows, Linux, and macOS
+- **Safer Operations**: Atomic extractions, backup preservation, load order protection
+- **Better UX**: Single-selection tables, visual progress indicators, real-time feedback
+- **Persistent State**: Tracks extraction status across sessions
+- **Standalone Executable**: No Python installation required for Windows users
+- **Real-time Monitoring**: File watcher detects CC changes immediately
 
 ## Installation & Usage
 
@@ -78,16 +86,19 @@ ba2-manager/
 
 ### `ba2_manager.core.ba2_handler` - BA2Handler Class
 
-Main interface for BA2 operations. Wraps Archive2.exe functionality and provides file management capabilities.
+Main interface for BA2 operations. Integrates with Archive2.exe and provides comprehensive file management.
 
 **Key Methods:**
 
-- `count_ba2_files(fo4_path)` - Count total BA2s (base game + mods + CC)
-- `list_ba2_mods()` - List all BA2 mods in MO2 directory
-- `extract_ba2_file(ba2_path, output_dir)` - Extract BA2 using Archive2.exe
-- `repack_ba2_file(source_dir, output_ba2)` - Repack loose files into BA2
-- `enable_cc_content(plugin_base)` - Enable Creation Club content
-- `disable_cc_content(plugin_base)` - Disable Creation Club content
+- `count_ba2_files(fo4_path)` - Count and categorize all BA2s (Main, DLC, CC, Creation Store, Mods, Texture variants)
+- `list_ba2_mods()` - List mods with BA2 info, extraction status, Nexus URLs
+- `extract_mod(mod_name)` - Extract all BA2s for a mod (creates backup, uses temp dir)
+- `restore_mod(mod_name)` - Restore mod from backup (preserves backup for reuse)
+- `extract_mod_ba2(mod_name, ba2_type)` - Extract specific Main or Texture BA2
+- `restore_mod_ba2(mod_name, ba2_type)` - Restore specific Main or Texture BA2
+- `get_cc_packages(fo4_path)` - List all CC content with enabled status
+- `write_ccc_file(fo4_path, enabled_plugins)` - Update Fallout4.ccc and reposition CC content
+- `backup_modlist()` / `backup_plugins()` - Create .bak files for load order protection
 - `get_log_entries(lines)` - Retrieve recent log entries
 
 **Example Usage:**
@@ -98,6 +109,7 @@ from ba2_manager.core.ba2_handler import BA2Handler
 handler = BA2Handler(
     archive2_path="C:\\Path\\To\\Archive2.exe",
     mo2_dir="C:\\MO2\\mods",
+    backup_dir="C:\\MO2\\BA2_Manager_Backups",
     log_file="ba2-manager.log"
 )
 

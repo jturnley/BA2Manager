@@ -1,8 +1,15 @@
-# Quick Start Guide
+# Quick Start Guide - BA2 Manager Pro v1.1.0
 
 ## Running the Application
 
-### First Time Setup
+### For End Users (Windows Executable)
+
+1. **Download** `ba2-manager.exe` from Releases
+2. **Place** anywhere (recommended: inside MO2 directory for portability)
+3. **Run** `ba2-manager.exe`
+4. **Configure** paths on first run (see below)
+
+### For Developers (Python)
 
 1. **Activate the virtual environment:**
    ```powershell
@@ -14,56 +21,119 @@
    python -m ba2_manager.main
    ```
 
-### Configure Settings
+## Initial Configuration
 
-When you first run the application:
+On first run, the app will attempt to auto-detect paths. If needed, manually configure:
 
-1. Go to the **Settings** tab
-2. Click "Browse" for each path:
-   - **Archive2.exe Path**: Point to your Archive2.exe
-     - (Usually in `CreationKit\Tools\Archive2` or `Fallout4\Tools\Archive2`)
-   - **MO2 Mods Directory**: Select your `MO2\mods` folder
-   - **Fallout 4 Path**: Select your Fallout 4 installation folder
-3. Click **Save Settings**
+### Settings Tab
 
-### Using the Application
+1. **Click "Find ModOrganizer.exe"** button
+   - Automatically detects: MO2 mods directory, Fallout 4 path, Archive2.exe
+   - Sets up backup directory location
+   - **Recommended method** for easiest setup
 
-#### Count BA2 Files
-1. Go to "Count BA2 Files" tab
-2. Configure Fallout 4 path in Settings first
-3. Click "Refresh Count" to see total BA2 file count
-4. View breakdown: Base Game | Mods | Creation Club
+2. **Or manually configure paths:**
+   - **Archive2.exe**: Usually in `Fallout4\Tools\Archive2` or `CreationKit\Tools\Archive2`
+   - **MO2 Mods Directory**: Your `ModOrganizer2\mods` folder
+   - **Fallout 4 Path**: Your Fallout 4 installation folder
 
-#### Extract BA2 Mods
-1. Go to "Manage BA2 Mods" tab
-2. Ensure MO2 directory is configured
-3. Select a mod from the list or click "Extract All"
-4. Monitor progress and status updates
+3. **Click "Save Settings"**
 
-#### Manage Creation Club
-1. Go to "Creation Club" tab
-2. Select CC packages
-3. Click "Enable Selected" or "Disable Selected"
-4. Check status for confirmation
+**Note**: BA2 Manager automatically:
+- Creates backups of `modlist.txt` and `plugins.txt` on startup
+- Detects custom mod directories from `ModOrganizer.ini`
+- Only counts active mods (enabled in modlist.txt and plugins.txt)
 
-#### View Operation Logs
-1. Go to "Logs" tab
-2. Click "Refresh Logs" to see recent operations
-3. Use "Clear Logs" to reset log file
+## Using the Application
+
+### BA2 Info Tab (Default View)
+
+**Dual Progress Bars:**
+- **Main BA2s**: 0-255 limit (green = safe, red blinking = over limit)
+- **Texture BA2s**: 0-254 limit (green = safe, red blinking = over limit)
+
+**Category Breakdown:**
+- Base Game (Main + DLC)
+- Creation Club (active only)
+- Creation Store
+- Mods (active only)
+- Vanilla Replacements
+
+**Actions:**
+- Click "Refresh Count" to update statistics
+- Watch progress bars for limit warnings
+
+### Manage Mods Tab
+
+**View Mods:**
+- Table shows: Mod Name | Main BA2 | Texture BA2 | Nexus Link
+- Green checkboxes = Already extracted (loose files)
+- Empty checkboxes = Packed (BA2 archives)
+- Click Nexus link to open mod page in browser
+
+**Extract BA2s:**
+1. Click checkbox for Main and/or Texture BA2 to extract
+2. Multiple mods can be selected
+3. Click **"Apply Actions"** button
+4. Atomic extraction creates backup automatically
+
+**Restore BA2s:**
+1. Uncheck the Main and/or Texture BA2 checkboxes
+2. Click **"Apply Actions"**  
+3. Restores from backup (backup is preserved for reuse)
+
+**Restore All:**
+- Click "Restore All Extracted" to revert all mods to BA2 archives
+- Useful for quick cleanup
+
+### Manage Creation Club Tab
+
+**Enable/Disable CC Content:**
+1. Check boxes for CC content you want enabled
+2. Uncheck boxes for CC content you want disabled
+3. Click **"Apply Changes"**
+
+**Smart Repositioning:**
+- BA2 Manager intelligently repositions enabled CC plugins and mods
+- Maintains alphabetical order among CC/DLC content
+- Prevents random repositioning when MO2 disables CC content
+- **This is the ONLY operation that modifies modlist.txt or plugins.txt**
+
+**Bulk Actions:**
+- "Enable All" - Activate all CC content
+- "Disable All" - Deactivate all CC content
+
+### View Logs Tab
+
+- Shows recent operation logs
+- Click "Refresh" to update
+- Useful for troubleshooting errors
+
+## Load Order Protection
+
+BA2 Manager Pro **automatically protects your load order**:
+
+- **Automatic Backups**: Creates `.bak` files for `modlist.txt` and `plugins.txt` on startup
+- **Atomic Operations**: Extraction/restoration uses temporary directories
+- **Backup Preservation**: Restoring a mod does NOT delete backups (can restore again)
+- **Smart CC Repositioning**: Only CC content is repositioned alphabetically (mods untouched)
 
 ## Development
 
 ### Running Tests
+
 ```powershell
 pytest
 ```
 
 ### Code Formatting
+
 ```powershell
 black ba2_manager tests
 ```
 
 ### Linting
+
 ```powershell
 ruff check ba2_manager tests
 ```
@@ -71,11 +141,13 @@ ruff check ba2_manager tests
 ## Building a Standalone Executable
 
 1. **Install PyInstaller dependencies:**
+
    ```powershell
    pip install PyInstaller
    ```
 
 2. **Build the executable:**
+
    ```powershell
    pyinstaller ba2_manager.spec
    ```
@@ -90,31 +162,50 @@ ruff check ba2_manager tests
 ## Troubleshooting
 
 ### "Archive2.exe Not Found"
+
 - Download from Fallout 4 Creation Kit or your Fallout 4 installation
 - Ensure path is set correctly in Settings
 
 ### "Module not found" errors
+
 - Activate virtual environment: `.venv\Scripts\Activate.ps1`
 - Reinstall dependencies: `pip install -e ".[dev]"`
 
 ### GUI won't start
+
 - Check that PyQt6 is installed: `pip list | grep PyQt`
 - Reinstall if needed: `pip install PyQt6 --upgrade`
 
 ### Permission errors when extracting
+
 - Close any open files from the BA2 you're extracting
 - Check that MO2 directory is accessible
 - Run with appropriate permissions
 
+### CC Content Not Repositioning
+
+- BA2 Manager only repositions when you click "Apply Changes" in Manage CC tab
+- Repositioning is smart: maintains alphabetical order among CC/DLC
+- Regular mod order is NEVER modified
+
+## Tips
+
+- **Always backup your MO2 directory** before major changes
+- Use "Restore All Extracted" for quick cleanup
+- Check logs for detailed error messages
+- Backups are preserved - you can restore the same mod multiple times
+- BA2 Manager only modifies load order files when managing CC content
+- Granular extraction lets you extract Main OR Texture independently
+
 ## Project Structure at a Glance
 
-```
+```plaintext
 Core Functionality:
   ba2_manager/core/ba2_handler.py    ← All BA2 operations
   ba2_manager/config.py               ← Settings storage
 
 User Interface:
-  ba2_manager/gui/main_window.py      ← 5-tab GUI
+  ba2_manager/gui/main_window.py      ← 4-tab GUI
   ba2_manager/main.py                 ← App launcher
 
 Configuration:
@@ -125,32 +216,47 @@ Configuration:
 
 ## Common Tasks
 
-### Extract all BA2s
+### Count All BA2 Files
+
 1. Settings tab → Configure Archive2.exe path
-2. Manage BA2 Mods tab → Click "Extract All"
-3. Wait for completion (check status)
+2. BA2 Info tab → Click "Refresh Count"
+3. View progress bars (Main 0-255, Texture 0-254)
+4. See category breakdown
 
-### Restore BA2s
-1. Select BA2 in list
-2. Click "Restore Selected"
-3. Original BA2 will be repacked from loose files
+### Extract Single Mod's BA2
 
-### Check BA2 Count
-1. Settings tab → Configure Fallout 4 path
-2. Count BA2 Files tab → "Refresh Count"
-3. See breakdown of all BA2 files
+1. Manage Mods tab → Find mod in table
+2. Click Main BA2 checkbox OR Texture BA2 checkbox (or both)
+3. Click "Apply Actions"
+4. Green checkbox indicates extracted state
+
+### Restore Extracted Mod
+
+1. Manage Mods tab → Find extracted mod (green checkboxes)
+2. Uncheck Main and/or Texture checkboxes
+3. Click "Apply Actions"
+4. BA2 files restored from backup
+
+### Manage Creation Club
+
+1. Manage CC tab → Check/uncheck CC content
+2. Click "Apply Changes"
+3. CC content automatically repositioned alphabetically
 
 ## Tips & Best Practices
 
-- **Always backup** mod folders before extracting
-- **Check logs** after operations for any errors
-- **Monitor progress** on large extractions (100+ GB)
-- **Use batch operations** for multiple files when possible
+- **Automatic backups**: modlist.txt and plugins.txt are backed up on app startup
+- **Check logs** after operations for detailed information
+- **Monitor progress bars**: Red blinking = over limit
+- **Granular extraction**: Extract Main OR Texture independently to save space
 - **Save settings** after configuring paths
+- **Backups preserved**: You can restore the same mod multiple times
 
-## Keyboard Shortcuts
+## Need More Help?
 
-(Coming in future versions)
+- Check the **Logs** tab for detailed operation logs
+- Review **API_REFERENCE.md** for developer documentation
+- See **README.md** for full feature list
 
 ## Getting Help
 
