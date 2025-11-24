@@ -23,7 +23,10 @@ All notable changes to this project will be documented in this file.
 - **Plugins.txt Filtering**: Excludes mods with disabled plugins from BA2 counts
 - **Atomic Extract Operations**: Uses temporary directories to prevent partial extraction failures
 - **Backup Preservation**: Restore operations preserve backups (copy instead of move) until all BA2s are restored
-- **Custom Mod Directory Support**: Reads `mod_directory` setting from ModOrganizer.ini
+- **Custom Mod Directory Support**: Automatically reads `mod_directory` setting from ModOrganizer.ini
+  - Supports both absolute and relative paths
+  - Handles @ByteArray() format
+  - Falls back to default `mods` folder if not configured
 - **Active Mods Filtering**: Only counts mods enabled in MO2's modlist.txt
 - **Dual BA2 Categories**: 
   - Main BA2s: Files without "- Textures" (0-255 limit)
@@ -35,6 +38,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - Restore operations now clean up loose files when all BA2s are present
 - Backup integrity preserved during individual BA2 restorations
+- Custom mod_directory from ModOrganizer.ini now properly detected
 - Archive2.exe detection now only runs after MO2 is configured
 - Archive2 auto-detection enhanced with 3-tier search (MO2, FO4, Registry)
 - Backup methods now properly called during initialization

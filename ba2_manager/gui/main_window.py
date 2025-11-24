@@ -1617,7 +1617,13 @@ class MainWindow(QMainWindow):
         if file_path and file_path.lower().endswith("modorganizer.exe"):
             # Extract MO2 root (parent of modorganizer.exe location)
             mo2_root = str(Path(file_path).parent)
-            mods_path = str(Path(mo2_root) / "mods")
+            
+            # Read custom mod_directory from ModOrganizer.ini if it exists
+            mods_path = self.read_mod_directory_from_ini(mo2_root)
+            if not mods_path:
+                # Default to standard mods folder if not configured
+                mods_path = str(Path(mo2_root) / "mods")
+            
             backup_path = str(Path(mo2_root) / "BA2_Manager_Backups")
             
             self.settings_mo2_display.setText(mods_path)
@@ -1711,6 +1717,46 @@ class MainWindow(QMainWindow):
         except Exception as e:
             # Registry key not found or other error
             print(f"Registry detection failed: {e}")
+            return None
+        return None
+
+    def read_mod_directory_from_ini(self, mo2_root: str) -> Optional[str]:
+        """
+        Read custom mod_directory setting from ModOrganizer.ini
+        
+        Returns:
+            Custom mod directory path if configured, None otherwise
+        """
+        try:
+            ini_path = Path(mo2_root) / "ModOrganizer.ini"
+            if not ini_path.exists():
+                return None
+                
+            with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    if line.strip().startswith('mod_directory='):
+                        # Extract value after mod_directory=
+                        value = line.strip().split('=', 1)[1]
+                        
+                        # Handle @ByteArray(path) format
+                        if value.startswith('@ByteArray(') and value.endswith(')'):
+                            # Extract content between parenthesis
+                            path_str = value[11:-1]
+                            # Replace double backslashes
+                            path_str = path_str.replace('\\\\', '\\')
+                            # If path is relative, make it absolute from mo2_root
+                            if not Path(path_str).is_absolute():
+                                path_str = str(Path(mo2_root) / path_str)
+                            return path_str
+                        else:
+                            # Standard format
+                            value = value.strip()
+                            # If path is relative, make it absolute from mo2_root
+                            if not Path(value).is_absolute():
+                                value = str(Path(mo2_root) / value)
+                            return value
+        except Exception as e:
+            self.logger.warning(f"Error reading mod_directory from ModOrganizer.ini: {e}")
             return None
         return None
 
