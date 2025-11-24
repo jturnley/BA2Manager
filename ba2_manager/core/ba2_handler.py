@@ -39,7 +39,7 @@ import shutil
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 from dataclasses import dataclass
 
 
@@ -323,13 +323,27 @@ class BA2Handler:
         """
         self.archive2_path = archive2_path
         self.mo2_dir = mo2_dir or "mods"
-        self.backup_dir = backup_dir or "mod_backups"
+        
+        # Backup directory should be relative to MO2, not the application directory
+        if backup_dir:
+            self.backup_dir = backup_dir
+        else:
+            # Default: Create backup directory as sibling to mods directory
+            mo2_path = Path(self.mo2_dir)
+            if mo2_path.name == "mods" and mo2_path.parent.exists():
+                # mo2_dir is the mods folder, use parent (MO2 root)
+                self.backup_dir = str(mo2_path.parent / "BA2_Manager_Backups")
+            else:
+                # mo2_dir is something else, create backup alongside it
+                self.backup_dir = str(mo2_path.parent / "BA2_Manager_Backups")
+        
         self.log_file = log_file or "ba2-manager.log"
         self.failed_extractions = []
         # Initialize vanilla BA2 names with hardcoded list as fallback
         self.vanilla_ba2_names = set(name.lower() for name in self.VANILLA_BA2S)
         # Initialize mod tracking for partial extraction detection
-        self.modlist_file = Path(__file__).parent.parent / "ba2_manager_modlist.json"
+        # Store in working directory (not temp dir) for persistence when running as executable
+        self.modlist_file = Path("ba2_manager_modlist.json")
         self.mod_tracking = self._load_mod_tracking()
         
         # Setup logging
@@ -372,6 +386,10 @@ class BA2Handler:
         except Exception as e:
             print(f"Warning: Could not set up console logging: {e}")
         self.logger.info(f"BA2Handler initialized - mods_dir={self.mo2_dir}, log_file={self.log_file}, debug_logging={debug_logging}")
+        
+        # Create backups of modlist.txt and plugins.txt on startup
+        self.backup_modlist()
+        self.backup_plugins()
     
     def _load_mod_tracking(self) -> dict:
         """Load mod tracking data from ba2_manager_modlist.json file."""
@@ -427,7 +445,7 @@ class BA2Handler:
         self._save_mod_tracking()
     
 
-    def count_ba2_files(self, fo4_path: str) -> Dict:
+    def count_ba2_files(self, fo4_path: str) -> Dict[str, Any]:
         """
         Count BA2 files across all sources and categorize them.
         
@@ -550,6 +568,7 @@ class BA2Handler:
         
         # Get list of active mods from modlist.txt
         active_mods = self._get_active_mods()
+        active_mods_set = {m.lower() for m in active_mods}
         
         # Count mod BA2s separately for MAIN and TEXTURES
         mod_main_count = 0
@@ -571,7 +590,7 @@ class BA2Handler:
                 mod_folder_name = ba2_file.parent.name.lower()
                 
                 # Only count BA2s from active mods (if active_mods is not empty, check it; if empty, count all)
-                if active_mods and mod_folder_name not in active_mods:
+                if active_mods_set and mod_folder_name not in active_mods_set:
                     self.logger.debug(f"  Skipping BA2 from inactive mod: {ba2_file.relative_to(mods_path)}")
                     continue
                 
@@ -627,30 +646,136 @@ class BA2Handler:
             "limit_textures": 254
         }
     
-    def _get_active_mods(self, mo2_root: Optional[Path] = None) -> set:
-        """Read active mods from modlist.txt in MO2 profile.
+    def _get_modlist_path(self, mo2_root: Optional[Path] = None) -> Path:
+        """Determine path to modlist.txt"""
+        if mo2_root:
+            return mo2_root / "profiles" / "Default" / "modlist.txt"
+        
+        # Try to infer mo2_root from mo2_dir
+        mo2_path = Path(self.mo2_dir)
+        if mo2_path.name == "mods":
+            mo2_root = mo2_path.parent
+            return mo2_root / "profiles" / "Default" / "modlist.txt"
+        else:
+            # mo2_dir is directly in MO2 root or we can't determine it
+            return mo2_path.parent / "profiles" / "Default" / "modlist.txt"
+    
+    def _get_plugins_path(self, mo2_root: Optional[Path] = None) -> Path:
+        """Determine path to plugins.txt"""
+        if mo2_root:
+            return mo2_root / "profiles" / "Default" / "plugins.txt"
+        
+        # Try to infer mo2_root from mo2_dir
+        mo2_path = Path(self.mo2_dir)
+        if mo2_path.name == "mods":
+            mo2_root = mo2_path.parent
+            return mo2_root / "profiles" / "Default" / "plugins.txt"
+        else:
+            # mo2_dir is directly in MO2 root or we can't determine it
+            return mo2_path.parent / "profiles" / "Default" / "plugins.txt"
+
+    def backup_modlist(self) -> bool:
+        """Create a backup of modlist.txt on startup"""
+        try:
+            modlist_path = self._get_modlist_path()
+            if not modlist_path.exists():
+                self.logger.debug(f"modlist.txt not found at {modlist_path}, skipping backup")
+                return False
+            
+            backup_path = modlist_path.with_suffix('.txt.bak')
+            shutil.copy2(modlist_path, backup_path)
+            self.logger.info(f"Backed up modlist.txt to {backup_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to backup modlist.txt: {e}")
+            return False
+    
+    def backup_plugins(self) -> bool:
+        """Create a backup of plugins.txt on startup"""
+        try:
+            plugins_path = self._get_plugins_path()
+            if not plugins_path.exists():
+                self.logger.debug(f"plugins.txt not found at {plugins_path}, skipping backup")
+                return False
+            
+            backup_path = plugins_path.with_suffix('.txt.bak')
+            shutil.copy2(plugins_path, backup_path)
+            self.logger.info(f"Backed up plugins.txt to {backup_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to backup plugins.txt: {e}")
+            return False
+
+    def verify_modlist_integrity(self) -> bool:
+        """Verify modlist.txt hasn't changed since backup"""
+        try:
+            modlist_path = self._get_modlist_path()
+            backup_path = modlist_path.with_suffix('.txt.bak')
+            
+            if not modlist_path.exists() or not backup_path.exists():
+                return True # Can't verify
+                
+            # Simple size/mtime check or full content check?
+            # Content check is safer
+            import filecmp
+            is_same = filecmp.cmp(modlist_path, backup_path, shallow=False)
+            if not is_same:
+                self.logger.warning("modlist.txt has changed since startup!")
+            return is_same
+        except Exception as e:
+            self.logger.error(f"Failed to verify modlist.txt: {e}")
+            return True # Assume okay to avoid blocking user if check fails
+
+    def _get_disabled_plugin_mods(self, mo2_root: Optional[Path] = None) -> set:
+        """Read plugins.txt to identify mods with disabled plugins.
         
         Args:
-            mo2_root: Optional path to MO2 root directory. If provided, will look for
-                     mo2_root/profiles/Default/modlist.txt. Otherwise derives from mo2_dir.
+            mo2_root: Optional path to MO2 root directory.
         
         Returns:
-            Set of active mod folder names (case-insensitive)
+            Set of mod folder names that have at least one disabled plugin
         """
-        active_mods = set()
+        disabled_mods = set()
+        plugins_path = self._get_plugins_path(mo2_root)
         
-        # Determine modlist path
-        if mo2_root:
-            modlist_path = mo2_root / "profiles" / "Default" / "modlist.txt"
-        else:
-            # Try to infer mo2_root from mo2_dir
-            mo2_path = Path(self.mo2_dir)
-            if mo2_path.name == "mods":
-                mo2_root = mo2_path.parent
-                modlist_path = mo2_root / "profiles" / "Default" / "modlist.txt"
-            else:
-                # mo2_dir is directly in MO2 root or we can't determine it
-                modlist_path = mo2_path.parent / "profiles" / "Default" / "modlist.txt"
+        if not plugins_path.exists():
+            self.logger.debug(f"plugins.txt not found at {plugins_path}, no plugin-based filtering")
+            return disabled_mods
+        
+        try:
+            with open(plugins_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    
+                    # Disabled plugins are prefixed with *
+                    if line.startswith('*'):
+                        plugin_name = line[1:].strip()
+                        # Extract mod name from plugin by removing extension
+                        # Most plugins match their mod folder name (e.g., MyMod.esp -> MyMod/)
+                        mod_name = plugin_name.rsplit('.', 1)[0]
+                        disabled_mods.add(mod_name)
+                        self.logger.debug(f"Found disabled plugin: {plugin_name} (mod: {mod_name})")
+                    
+            self.logger.info(f"Found {len(disabled_mods)} mods with disabled plugins in plugins.txt")
+        except Exception as e:
+            self.logger.warning(f"Could not read plugins.txt: {e}")
+        
+        return disabled_mods
+    
+    def _get_active_mods(self, mo2_root: Optional[Path] = None) -> List[str]:
+        """Read active mods from modlist.txt and filter by plugins.txt.
+        
+        Args:
+            mo2_root: Optional path to MO2 root directory.
+        
+        Returns:
+            List of active mod folder names in MO2 display order (Priority 0 first),
+            excluding mods with disabled plugins
+        """
+        active_mods = []
+        modlist_path = self._get_modlist_path(mo2_root)
         
         if not modlist_path.exists():
             self.logger.debug(f"modlist.txt not found at {modlist_path}, counting all mods as active")
@@ -658,23 +783,38 @@ class BA2Handler:
         
         try:
             with open(modlist_path, 'r', encoding='utf-8', errors='ignore') as f:
-                for line in f:
-                    line = line.strip()
-                    # Skip comments and empty lines
-                    if not line or line.startswith('#'):
-                        continue
-                    # Active mods are prefixed with + (inactive with -)
-                    if line.startswith('+'):
-                        mod_name = line[1:].strip()
-                        active_mods.add(mod_name.lower())
-                        self.logger.debug(f"Active mod found: {mod_name}")
+                lines = f.readlines()
+                
+            # modlist.txt is in reverse priority order (Highest priority at top)
+            # We want MO2 display order (Priority 0 at top), so we reverse the list
+            for line in reversed(lines):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                # Active mods are prefixed with +
+                if line.startswith('+'):
+                    mod_name = line[1:].strip()
+                    active_mods.append(mod_name)
+                    
             self.logger.info(f"Found {len(active_mods)} active mods in modlist.txt")
+            
+            # Additional filtering: Remove mods with disabled plugins
+            disabled_plugin_mods = self._get_disabled_plugin_mods(mo2_root)
+            if disabled_plugin_mods:
+                original_count = len(active_mods)
+                active_mods = [mod for mod in active_mods if mod not in disabled_plugin_mods]
+                filtered_count = original_count - len(active_mods)
+                if filtered_count > 0:
+                    self.logger.info(f"Filtered out {filtered_count} mods with disabled plugins")
+                    self.logger.info(f"Final active mod count: {len(active_mods)}")
+            
         except Exception as e:
             self.logger.warning(f"Could not read modlist.txt: {e}")
         
         return active_mods
     
-    def _get_active_cc_plugins(self, fo4_path: str) -> set:
+    def _get_active_cc_plugins(self, fo4_path: str) -> set[str]:
         """Read active CC plugins from Fallout4.ccc
         
         Args:
@@ -794,14 +934,18 @@ class BA2Handler:
         - Total size of all BA2 files
         
         Returns:
-            List of BA2Info objects sorted by mod name
+            List of BA2Info objects sorted by MO2 load order (Priority 0 first)
         """
         ba2_mods = {}
         mods_path = Path(self.mo2_dir)
         backup_path = Path(self.backup_dir)
         
         # Get list of active mods from modlist.txt
-        active_mods = self._get_active_mods()
+        # This list is in MO2 display order (Priority 0 first)
+        active_mods_list = self._get_active_mods()
+        
+        # Create a set for fast lookups during filtering
+        active_mods_set = {m.lower() for m in active_mods_list}
         
         # 1. Scan for BA2 files in mods directory
         if mods_path.exists():
@@ -811,8 +955,12 @@ class BA2Handler:
                         mod_name = ba2_file.parent.name
                         
                         # Skip inactive mods
-                        if active_mods and mod_name.lower() not in active_mods:
-                            self.logger.debug(f"Skipping BA2 from inactive mod: {mod_name}")
+                        if active_mods_set and mod_name.lower() not in active_mods_set:
+                            # self.logger.debug(f"Skipping BA2 from inactive mod: {mod_name}")
+                            continue
+                        
+                        # Skip vanilla replacements (Fallout4-Textures1.ba2, DLCCoast - Textures.ba2, etc.)
+                        if ba2_file.name.lower() in self.vanilla_ba2_names:
                             continue
                         
                         # Initialize mod entry if needed
@@ -844,49 +992,67 @@ class BA2Handler:
             except Exception as e:
                 self.logger.error(f"Error listing BA2 mods in {self.mo2_dir}: {e}")
         else:
-            self.logger.info(f"Mods directory does not exist: {self.mo2_dir}")
+            self.logger.warning(f"MO2 mods directory not found: {self.mo2_dir}")
 
-        # 2. Check backup directory for extracted mods
+        # 2. Check for extracted mods in backup directory
         if backup_path.exists():
             try:
                 for mod_backup in backup_path.iterdir():
-                    if mod_backup.is_dir():
-                        mod_name = mod_backup.name
+                    if not mod_backup.is_dir():
+                        continue
                         
-                        # If mod still has BA2 files in live directory, skip it
-                        # (it's not fully extracted)
+                    mod_name = mod_backup.name
+                    
+                    # Skip inactive mods
+                    if active_mods_set and mod_name.lower() not in active_mods_set:
+                        continue
+                        
+                    try:
+                        # Check what's in the backup
+                        main_ba2_in_backup = any(f.name.lower().endswith('.ba2') and " - texture" not in f.name.lower() for f in mod_backup.iterdir())
+                        texture_ba2_in_backup = any(" - texture" in f.name.lower() and f.name.lower().endswith('.ba2') for f in mod_backup.iterdir())
+                        
+                        if not main_ba2_in_backup and not texture_ba2_in_backup:
+                            continue
+                            
+                        # If mod still has BA2 files in live directory, it's partially extracted
                         if mod_name in ba2_mods:
-                            # But mark the backup as existing
-                            ba2_mods[mod_name]['has_backup'] = True
+                            self.logger.info(f"  Partially extracted: {mod_name} (has some BA2s live)")
+                            # Mark which types are extracted (in backup but not in live)
+                            live_data = ba2_mods[mod_name]
+                            
+                            # Main BA2 is extracted if it's in backup but not live
+                            if main_ba2_in_backup and not live_data.get('has_main', False):
+                                live_data['main_extracted'] = True
+                                live_data['has_main'] = True  # Mod originally had Main BA2
+                            
+                            # Texture BA2 is extracted if it's in backup but not live
+                            if texture_ba2_in_backup and not live_data.get('has_texture', False):
+                                live_data['texture_extracted'] = True
+                                live_data['has_texture'] = True  # Mod originally had Texture BA2
+                            
+                            # Mark backup as existing
+                            live_data['has_backup'] = True
                             continue
                         
-                        # This mod has been extracted - look for BA2s in backup to determine type
-                        main_ba2_in_backup = False
-                        texture_ba2_in_backup = False
-                        backup_size = 0
+                        # This mod has been fully extracted (no BA2s in live directory)
+                        self.logger.info(f"  Fully extracted: {mod_name}")
+                        ba2_mods[mod_name] = {
+                            'has_main': main_ba2_in_backup,
+                            'has_texture': texture_ba2_in_backup,
+                            'main_extracted': main_ba2_in_backup,
+                            'texture_extracted': texture_ba2_in_backup,
+                            'total_size': 0, # Size is 0 in live dir
+                            'has_backup': True,
+                            'nexus_url': None # Can't easily get URL from backup
+                        }
                         
-                        for f in mod_backup.rglob("*.ba2"):
-                            backup_size += f.stat().st_size
-                            if " - texture" in f.name.lower():
-                                texture_ba2_in_backup = True
-                            else:
-                                main_ba2_in_backup = True
-                        
-                        # Only add if there are BA2s in the backup
-                        if main_ba2_in_backup or texture_ba2_in_backup:
-                            ba2_mods[mod_name] = {
-                                'has_main': main_ba2_in_backup,
-                                'has_texture': texture_ba2_in_backup,
-                                'main_extracted': main_ba2_in_backup,  # If it's only in backup, it's extracted
-                                'texture_extracted': texture_ba2_in_backup,
-                                'total_size': backup_size,
-                                'has_backup': True,
-                                'nexus_url': self._get_nexus_url(mods_path / mod_name)
-                            }
-                            
+                    except Exception as e:
+                        self.logger.warning(f"Error processing backup for {mod_name}: {e}")
+                        continue
             except Exception as e:
-                self.logger.error(f"Error listing backups in {self.backup_dir}: {e}")
-        
+                self.logger.error(f"Error scanning backup directory: {e}")
+
         # 3. Convert to BA2Info list
         result = []
         for mod_name, data in ba2_mods.items():
@@ -906,116 +1072,10 @@ class BA2Handler:
         # Update tracking file with current mod states
         self._update_mod_tracking(ba2_mods)
         
-        return sorted(result, key=lambda x: x.mod_name)
-    
-    def extract_ba2_file(self, ba2_path: str, output_dir: str = None) -> bool:
-        """Extract a BA2 file using Archive2.exe
-        
-        Args:
-            ba2_path: Path to BA2 file to extract
-            output_dir: Output directory for extracted files
+        # Sort alphabetically by mod name
+        result.sort(key=lambda x: x.mod_name.lower())
             
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.archive2_path or not os.path.exists(self.archive2_path):
-            self.logger.error("Archive2.exe not found")
-            return False
-        
-        if not os.path.exists(ba2_path):
-            self.logger.error(f"BA2 file not found: {ba2_path}")
-            return False
-        
-        try:
-            import time
-            start_time = time.time()
-            
-            if output_dir is None:
-                output_dir = os.path.dirname(ba2_path)
-            
-            # Log extraction details in debug mode
-            ba2_size = os.path.getsize(ba2_path)
-            self.logger.debug(f"Extracting BA2: {ba2_path} (Size: {ba2_size / 1024 / 1024:.2f} MB)")
-            self.logger.debug(f"Output directory: {output_dir}")
-            
-            os.makedirs(output_dir, exist_ok=True)
-            
-            # Run Archive2.exe to extract
-            cmd = [self.archive2_path, "-extract", ba2_path, "-output", output_dir]
-            self.logger.debug(f"Running command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, timeout=300)
-            
-            extraction_time = time.time() - start_time
-            
-            if result.returncode == 0:
-                # Log extraction result details
-                self.logger.info(f"Successfully extracted: {ba2_path} (Duration: {extraction_time:.2f}s)")
-                self.logger.debug(f"Archive2.exe stdout: {result.stdout.decode()}")
-                
-                # Count extracted files if possible
-                if os.path.exists(output_dir):
-                    file_count = sum([len(files) for _, _, files in os.walk(output_dir)])
-                    self.logger.debug(f"Files extracted: {file_count}")
-                
-                return True
-            else:
-                stderr_msg = result.stderr.decode()
-                self.logger.error(f"Failed to extract {ba2_path}: {stderr_msg} (Duration: {extraction_time:.2f}s)")
-                self.logger.debug(f"Archive2.exe stdout: {result.stdout.decode()}")
-                self.failed_extractions.append(ba2_path)
-                return False
-        except Exception as e:
-            self.logger.error(f"Error extracting {ba2_path}: {str(e)}")
-            self.logger.debug(f"Exception details: {type(e).__name__}")
-            self.failed_extractions.append(ba2_path)
-            return False
-    
-    def repack_ba2_file(self, source_dir: str, output_ba2: str) -> bool:
-        """Repack loose files into a BA2 archive
-        
-        Args:
-            source_dir: Directory containing files to pack
-            output_ba2: Output BA2 file path
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        if not self.archive2_path or not os.path.exists(self.archive2_path):
-            self.logger.error("Archive2.exe not found")
-            return False
-        
-        try:
-            import time
-            start_time = time.time()
-            
-            # Log repacking details in debug mode
-            if os.path.exists(source_dir):
-                file_count = sum([len(files) for _, _, files in os.walk(source_dir)])
-                self.logger.debug(f"Repacking BA2: {output_ba2} from {source_dir} ({file_count} files)")
-            else:
-                self.logger.warning(f"Source directory does not exist: {source_dir}")
-                return False
-            
-            cmd = [self.archive2_path, "-create", source_dir, "-output", output_ba2]
-            self.logger.debug(f"Running command: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, timeout=300)
-            
-            repack_time = time.time() - start_time
-            
-            if result.returncode == 0:
-                output_size = os.path.getsize(output_ba2) if os.path.exists(output_ba2) else 0
-                self.logger.info(f"Successfully created: {output_ba2} (Duration: {repack_time:.2f}s, Size: {output_size / 1024 / 1024:.2f} MB)")
-                self.logger.debug(f"Archive2.exe stdout: {result.stdout.decode()}")
-                return True
-            else:
-                stderr_msg = result.stderr.decode()
-                self.logger.error(f"Failed to create {output_ba2}: {stderr_msg} (Duration: {repack_time:.2f}s)")
-                self.logger.debug(f"Archive2.exe stdout: {result.stdout.decode()}")
-                return False
-        except Exception as e:
-            self.logger.error(f"Error creating {output_ba2}: {str(e)}")
-            self.logger.debug(f"Exception details: {type(e).__name__}")
-            return False
+        return result
     
     def create_cc_master_backup(self, fo4_path: str) -> bool:
         """
@@ -1064,6 +1124,213 @@ class BA2Handler:
             self.logger.error(f"Error creating CC master backup: {e}")
             return False
 
+    def _reposition_cc_plugins_DISABLED(self, plugins_path: Path, cc_plugins: List[str]) -> bool:
+        """
+        DISABLED: Alphabetical repositioning conflicts with MO2's behavior.
+        Reposition CC plugins in plugins.txt to be alphabetically sorted among
+        existing CC content, or after DLC content if no CC exists.
+        
+        Args:
+            plugins_path: Path to plugins.txt file
+            cc_plugins: List of CC plugin filenames to reposition (without * prefix)
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if not plugins_path.exists():
+                self.logger.warning(f"plugins.txt not found at {plugins_path}")
+                return False
+            
+            # Read all plugins
+            with open(plugins_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = [line.rstrip('\n') for line in f.readlines()]
+            
+            # Separate CC plugins from the list to reposition
+            cc_to_add = set(p.lower() for p in cc_plugins)
+            
+            # Find existing CC and DLC positions
+            cc_positions = []  # (index, plugin_name, is_disabled)
+            dlc_positions = []
+            other_lines = []
+            
+            for i, line in enumerate(lines):
+                stripped = line.lstrip('*').strip()
+                if not stripped:
+                    continue
+                    
+                is_disabled = line.startswith('*')
+                
+                # Check if it's a CC plugin (from Data folder)
+                if stripped.lower().startswith('cc') and stripped.lower().endswith(('.esl', '.esm', '.esp')):
+                    # Skip if this is one we're repositioning
+                    if stripped.lower() not in cc_to_add:
+                        cc_positions.append((i, stripped, is_disabled))
+                # Check if it's a DLC plugin
+                elif stripped.lower().startswith('dlc') and stripped.lower().endswith(('.esl', '.esm', '.esp')):
+                    dlc_positions.append((i, stripped, is_disabled))
+            
+            # Determine insertion point
+            if cc_positions:
+                # Insert alphabetically among existing CC content
+                insert_after = cc_positions[-1][0]  # After last CC plugin
+                self.logger.info(f"Inserting CC plugins alphabetically after existing CC content at line {insert_after}")
+            elif dlc_positions:
+                # Insert after DLC content
+                insert_after = dlc_positions[-1][0]
+                self.logger.info(f"Inserting CC plugins after DLC content at line {insert_after}")
+            else:
+                # Insert at the end
+                insert_after = len(lines) - 1
+                self.logger.info(f"No CC or DLC found, inserting at end")
+            
+            # Remove lines that contain plugins we're repositioning
+            new_lines = []
+            for line in lines:
+                stripped = line.lstrip('*').strip()
+                if stripped.lower() not in cc_to_add:
+                    new_lines.append(line)
+            
+            # Collect all CC plugins (existing + new) for alphabetical sorting
+            all_cc = []
+            for _, plugin, is_disabled in cc_positions:
+                all_cc.append((plugin, is_disabled))
+            
+            for plugin in cc_plugins:
+                # These are being enabled, so not disabled
+                all_cc.append((plugin, False))
+            
+            # Sort alphabetically (case-insensitive)
+            all_cc.sort(key=lambda x: x[0].lower())
+            
+            # Find where to insert in new_lines
+            # We need to find the position that corresponds to insert_after
+            # Since we removed some lines, recalculate
+            actual_insert = 0
+            for i, line in enumerate(new_lines):
+                stripped = line.lstrip('*').strip()
+                if stripped.lower().startswith('dlc') or (stripped.lower().startswith('cc') and stripped.lower() not in cc_to_add):
+                    actual_insert = i + 1
+            
+            # Insert all CC plugins at the calculated position
+            for plugin, is_disabled in reversed(all_cc):
+                prefix = '*' if is_disabled else ''
+                new_lines.insert(actual_insert, f"{prefix}{plugin}")
+            
+            # Write back to plugins.txt
+            with open(plugins_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(new_lines))
+                if new_lines and not new_lines[-1].endswith('\n'):
+                    f.write('\n')
+            
+            self.logger.info(f"Repositioned {len(cc_plugins)} CC plugins in plugins.txt")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error repositioning CC plugins: {e}")
+            return False
+    
+    def _reposition_cc_mods_DISABLED(self, modlist_path: Path, cc_mod_names: List[str]) -> bool:
+        """
+        DISABLED: Alphabetical repositioning conflicts with MO2's behavior.
+        Reposition CC mod entries in modlist.txt to be alphabetically sorted among
+        existing CC content, or after official/DLC content if no CC exists.
+        
+        Args:
+            modlist_path: Path to modlist.txt file
+            cc_mod_names: List of CC mod folder names to reposition
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            if not modlist_path.exists():
+                self.logger.warning(f"modlist.txt not found at {modlist_path}")
+                return False
+            
+            # Read all lines
+            with open(modlist_path, 'r', encoding='utf-8', errors='ignore') as f:
+                lines = [line.rstrip('\n') for line in f.readlines()]
+            
+            # Separate CC mods to reposition
+            cc_to_add = set(m.lower() for m in cc_mod_names)
+            
+            # Find existing CC and official content positions
+            cc_positions = []  # (index, mod_name, is_disabled)
+            official_positions = []  # Official/DLC content
+            
+            for i, line in enumerate(lines):
+                stripped = line.lstrip('+-').strip()
+                if not stripped or stripped.startswith('#'):
+                    continue
+                    
+                is_disabled = line.startswith('-')
+                is_enabled = line.startswith('+')
+                
+                # Check if it's a CC mod (starts with CC or Creation Club in name)
+                # Use case-insensitive matching
+                if any(x in stripped.lower() for x in ['creation club', ' cc ', '-cc-', '_cc_', ' (cc)']) or stripped.lower().startswith('cc'):
+                    # Skip if this is one we're repositioning
+                    if stripped.lower() not in cc_to_add:
+                        cc_positions.append((i, stripped, is_disabled))
+                # Check for official/DLC content markers
+                elif any(x in stripped.lower() for x in ['dlc', 'official', 'bethesda']):
+                    official_positions.append((i, stripped, is_disabled))
+            
+            # Determine insertion point (modlist.txt is in reverse priority order)
+            if cc_positions:
+                # Insert at the beginning of CC content section
+                insert_at = cc_positions[0][0]
+                self.logger.info(f"Inserting CC mods alphabetically at beginning of CC section at line {insert_at}")
+            elif official_positions:
+                # Insert after official content
+                insert_at = official_positions[-1][0] + 1
+                self.logger.info(f"Inserting CC mods after official content at line {insert_at}")
+            else:
+                # Insert near the bottom (high priority in MO2)
+                insert_at = len(lines)
+                self.logger.info(f"No CC or official content found, inserting at end")
+            
+            # Remove lines that contain mods we're repositioning
+            new_lines = []
+            for line in lines:
+                stripped = line.lstrip('+-').strip()
+                if stripped.lower() not in cc_to_add:
+                    new_lines.append(line)
+            
+            # Collect all CC mods (existing + new) for alphabetical sorting
+            all_cc = []
+            for _, mod_name, is_disabled in cc_positions:
+                all_cc.append((mod_name, is_disabled))
+            
+            for mod_name in cc_mod_names:
+                # These are being enabled, so not disabled
+                all_cc.append((mod_name, False))
+            
+            # Sort alphabetically (case-insensitive)
+            all_cc.sort(key=lambda x: x[0].lower())
+            
+            # Recalculate insertion point after removals
+            actual_insert = min(insert_at, len(new_lines))
+            
+            # Insert all CC mods at the calculated position
+            for mod_name, is_disabled in reversed(all_cc):
+                prefix = '-' if is_disabled else '+'
+                new_lines.insert(actual_insert, f"{prefix}{mod_name}")
+            
+            # Write back to modlist.txt
+            with open(modlist_path, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(new_lines))
+                if new_lines and not new_lines[-1].endswith('\n'):
+                    f.write('\n')
+            
+            self.logger.info(f"Repositioned {len(cc_mod_names)} CC mods in modlist.txt")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error repositioning CC mods in modlist.txt: {e}")
+            return False
+
     def write_ccc_file(self, fo4_path: str, enabled_plugins: List[str]) -> bool:
         """
         Write the Fallout4.ccc file with the provided list of plugins.
@@ -1084,11 +1351,12 @@ class BA2Handler:
             # Ensure we have a backup first
             self.create_cc_master_backup(fo4_path)
             
-            # Write the file
+            # Write the Fallout4.ccc file
             with open(ccc_path, 'w') as f:
                 f.write('\n'.join(enabled_plugins))
                 
             self.logger.info(f"Updated Fallout4.ccc with {len(enabled_plugins)} plugins")
+            
             return True
             
         except Exception as e:
@@ -1250,18 +1518,25 @@ class BA2Handler:
             return False
             
         try:
-            # 1. Create Backup
-            if backup_path.exists():
-                self.logger.info(f"Deleting old backup: {backup_path}")
-                shutil.rmtree(backup_path)
-                
-            self.logger.info(f"Creating backup for {mod_name}...")
-            shutil.copytree(mod_path, backup_path)
+            # 1. Create Backup (if it doesn't exist, to preserve previous backups)
+            if not backup_path.exists():
+                self.logger.info(f"Creating backup for {mod_name}...")
+                # Ensure backup directory parent exists
+                backup_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(mod_path, backup_path)
+            else:
+                self.logger.info(f"Backup already exists for {mod_name}, preserving it")
             
-            # 2. Extract BA2s
+            # 2. Create temp directory for atomic extraction
+            import tempfile
+            temp_dir = Path(tempfile.mkdtemp(prefix=f"ba2_extract_{mod_name}_"))
+            self.logger.debug(f"Using temp directory: {temp_dir}")
+            
+            # 3. Extract BA2s to temp directory first
             ba2_files = list(mod_path.rglob("*.ba2"))
             if not ba2_files:
                 self.logger.warning(f"No BA2 files found in {mod_name}")
+                temp_dir.rmdir()  # Clean up temp dir
                 return True # Already extracted?
                 
             extraction_failed = False
@@ -1269,15 +1544,12 @@ class BA2Handler:
             
             for ba2_file in ba2_files:
                 self.logger.info(f"Extracting {ba2_file.name}...")
-                # Extract to the mod folder (same location as BA2)
-                # Note: Archive2 extracts relative to the output folder
-                # If BA2 contains "textures/foo.dds", and we extract to mod_path,
-                # it will be at "mod_path/textures/foo.dds".
+                # Extract to temp directory for atomic operation
+                # Archive2 extracts relative to the output folder
+                # If BA2 contains "textures/foo.dds", it will be at "temp_dir/textures/foo.dds"
                 
                 # Archive2.exe usage: Archive2.exe <archive_path> -extract=<destination_path>
-                # We construct the command string manually to ensure correct quoting for Archive2
-                # Archive2 requires: "path\to\archive.ba2" -extract="path\to\destination"
-                cmd = f'"{self.archive2_path}" "{ba2_file}" -extract="{mod_path}"'
+                cmd = f'"{self.archive2_path}" "{ba2_file}" -extract="{temp_dir}"'
                 
                 # Use startupinfo to hide console window
                 startupinfo = subprocess.STARTUPINFO()
@@ -1292,31 +1564,46 @@ class BA2Handler:
                     extraction_failed = True
                     break
             
-            # 3. Handle Failure or Success
+            # 4. Handle Failure or Success
             if extraction_failed:
-                self.logger.error("Extraction failed. Rolling back...")
-                # Delete potentially corrupted mod folder
-                if mod_path.exists():
-                    shutil.rmtree(mod_path)
-                # Restore from backup
-                shutil.copytree(backup_path, mod_path)
+                self.logger.error("Extraction failed. Cleaning up temp directory...")
+                # Clean up temp directory
+                shutil.rmtree(temp_dir)
+                # Original mod folder remains untouched
                 return False
             else:
-                # Success - Delete BA2s
-                self.logger.info("Extraction successful. Removing BA2 files...")
+                # Success - Perform atomic swap
+                self.logger.info("Extraction successful. Performing atomic swap...")
+                
+                # Copy all extracted content from temp to mod folder
+                for item in temp_dir.iterdir():
+                    dest = mod_path / item.name
+                    if item.is_dir():
+                        if dest.exists():
+                            shutil.rmtree(dest)
+                        shutil.copytree(item, dest)
+                    else:
+                        shutil.copy2(item, dest)
+                
+                # Now delete BA2s from mod folder
+                self.logger.info("Removing BA2 files from mod folder...")
                 for ba2_file in extracted_ba2s:
                     os.remove(ba2_file)
+                
+                # Clean up temp directory
+                shutil.rmtree(temp_dir)
+                self.logger.info(f"Extraction complete. Original BA2s backed up to {backup_path}")
                 return True
                 
         except Exception as e:
             self.logger.error(f"Error extracting mod {mod_name}: {e}")
-            # Try to rollback if possible
+            # Clean up temp directory if it exists
             try:
-                if backup_path.exists() and mod_path.exists():
-                    shutil.rmtree(mod_path)
-                    shutil.copytree(backup_path, mod_path)
+                if 'temp_dir' in locals() and temp_dir.exists():
+                    shutil.rmtree(temp_dir)
             except:
                 pass
+            # Original mod folder should be untouched if extraction failed
             return False
 
     def restore_mod(self, mod_name: str) -> bool:
@@ -1340,27 +1627,58 @@ class BA2Handler:
         if not backup_path.exists():
             self.logger.error(f"Backup not found for {mod_name}")
             return False
+        
+        # Initialize temp path for cleanup in case of error
+        temp_path = mod_path.parent / f"_temp_{mod_name}"
             
         try:
             self.logger.info(f"Restoring {mod_name} from backup...")
             
-            # 1. Delete current mod folder
+            # 1. Copy backup to temp location first (safer than delete-then-copy)
+            if temp_path.exists():
+                shutil.rmtree(temp_path)
+            shutil.copytree(str(backup_path), str(temp_path))
+            self.logger.info(f"Copied backup to temporary location")
+            
+            # 2. Delete current mod folder only after successful copy
             if mod_path.exists():
                 shutil.rmtree(mod_path)
+                self.logger.info(f"Deleted current mod folder")
                 
-            # 2. Restore from backup
-            # We use copytree to keep the backup for future use?
-            # The PowerShell script uses Move-Item: "Move-Item -Path $backupPath -Destination $modPath"
-            # This implies the backup is consumed/removed upon restore.
-            # This makes sense: if we restore, we are back to "Normal" state.
-            # If we extract again, we make a new backup.
-            shutil.move(str(backup_path), str(mod_path))
+            # 3. Move temp folder to final location
+            shutil.move(str(temp_path), str(mod_path))
+            self.logger.info(f"Moved restored files to mod folder")
             
-            self.logger.info(f"Successfully restored {mod_name}")
+            # 4. Verify mod folder matches backup before deleting
+            # Get all BA2 files in backup
+            backup_ba2s = set()
+            for ba2_file in backup_path.rglob("*.ba2"):
+                backup_ba2s.add(ba2_file.name.lower())
+            
+            # Get all BA2 files in restored mod folder
+            mod_ba2s = set()
+            for ba2_file in mod_path.rglob("*.ba2"):
+                mod_ba2s.add(ba2_file.name.lower())
+            
+            # Only delete backup if all BA2s are present
+            if backup_ba2s == mod_ba2s:
+                shutil.rmtree(str(backup_path))
+                self.logger.info(f"Deleted backup folder for {mod_name} (fully restored)")
+            else:
+                self.logger.warning(f"Backup BA2s don't match restored mod, keeping backup for safety")
+            
+            self.logger.info(f"Successfully restored {mod_name} from backup")
             return True
             
         except Exception as e:
             self.logger.error(f"Error restoring mod {mod_name}: {e}")
+            # Attempt cleanup of temp folder if it exists
+            if temp_path.exists():
+                try:
+                    shutil.rmtree(temp_path)
+                    self.logger.info(f"Cleaned up temporary folder")
+                except:
+                    pass
             return False
 
     def extract_mod_ba2(self, mod_name: str, ba2_type: str, create_backup: bool = True) -> bool:
@@ -1391,7 +1709,8 @@ class BA2Handler:
             ba2_files = []
             for ba2_file in mod_path.rglob("*.ba2"):
                 ba2_name = ba2_file.name.lower()
-                is_texture = ba2_name.endswith(" - textures.ba2")
+                # Texture BA2s contain " - texture" in the filename (e.g., " - Textures.ba2", " - Textures1.ba2")
+                is_texture = " - texture" in ba2_name
                 
                 if ba2_type == "texture" and is_texture:
                     ba2_files.append(ba2_file)
@@ -1405,6 +1724,8 @@ class BA2Handler:
             # 2. Create backup if requested and doesn't exist
             if create_backup and not backup_path.exists():
                 self.logger.info(f"Creating backup for {mod_name}...")
+                # Ensure backup directory parent exists
+                backup_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(mod_path, backup_path)
             
             # 3. Extract BA2 files
@@ -1460,7 +1781,8 @@ class BA2Handler:
             ba2_files_to_restore = []
             for ba2_file in backup_path.rglob("*.ba2"):
                 ba2_name = ba2_file.name.lower()
-                is_texture = ba2_name.endswith(" - textures.ba2")
+                # Texture BA2s contain " - texture" in the filename (e.g., " - Textures.ba2", " - Textures1.ba2")
+                is_texture = " - texture" in ba2_name
                 
                 if ba2_type == "texture" and is_texture:
                     ba2_files_to_restore.append(ba2_file)
@@ -1471,7 +1793,7 @@ class BA2Handler:
                 self.logger.warning(f"No {ba2_type} BA2 files in backup for {mod_name}")
                 return True
             
-            # Copy BA2 files from backup to mod folder
+            # Copy BA2 files from backup to mod folder (don't delete from backup)
             for backup_ba2 in ba2_files_to_restore:
                 relative_path = backup_ba2.relative_to(backup_path)
                 target_ba2 = mod_path / relative_path
@@ -1479,24 +1801,53 @@ class BA2Handler:
                 # Create parent directory if needed
                 target_ba2.parent.mkdir(parents=True, exist_ok=True)
                 
-                # Copy file
+                # Copy file (keep backup intact)
                 shutil.copy2(backup_ba2, target_ba2)
                 self.logger.info(f"Restored {backup_ba2.name}")
             
-            # Check if all BA2s have been restored (nothing left to extract)
-            # If so, we can delete the backup
-            remaining_extracted = False
-            for item in mod_path.rglob("*"):
-                if item.is_file():
-                    # If there are non-BA2 files, mod is still partially extracted
-                    if not item.name.lower().endswith(".ba2"):
-                        remaining_extracted = True
-                        break
+            # Check if mod folder now matches backup (all BA2s restored)
+            # Get all BA2 files in backup
+            backup_ba2s = set()
+            for ba2_file in backup_path.rglob("*.ba2"):
+                backup_ba2s.add(ba2_file.name.lower())
             
-            # Delete backup only if nothing remains extracted
-            if not remaining_extracted:
-                self.logger.info(f"All BA2s restored, removing backup for {mod_name}")
+            # Get all BA2 files in mod folder
+            mod_ba2s = set()
+            for ba2_file in mod_path.rglob("*.ba2"):
+                mod_ba2s.add(ba2_file.name.lower())
+            
+            # If all BA2s are restored, clean up loose files and delete backup
+            if backup_ba2s == mod_ba2s:
+                self.logger.info(f"All BA2s restored - cleaning up loose files for {mod_name}")
+                
+                # Delete all loose files except BA2s, ESPs, and meta.ini
+                files_deleted = 0
+                for item in mod_path.rglob("*"):
+                    if item.is_file():
+                        # Keep BA2s, ESPs, ESMs, and meta.ini
+                        if item.suffix.lower() not in ['.ba2', '.esp', '.esm'] and item.name.lower() != 'meta.ini':
+                            try:
+                                item.unlink()
+                                files_deleted += 1
+                            except Exception as e:
+                                self.logger.warning(f"Failed to delete {item.name}: {e}")
+                
+                # Remove empty directories
+                for item in sorted(mod_path.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+                    if item.is_dir() and not any(item.iterdir()):
+                        try:
+                            item.rmdir()
+                        except Exception as e:
+                            self.logger.warning(f"Failed to remove empty directory {item.name}: {e}")
+                
+                self.logger.info(f"Deleted {files_deleted} loose files, mod fully restored to BA2s")
+                
+                # Now safe to delete backup
                 shutil.rmtree(backup_path)
+                self.logger.info(f"Deleted backup folder for {mod_name}")
+            else:
+                missing = backup_ba2s - mod_ba2s
+                self.logger.info(f"Mod still missing {len(missing)} BA2(s) from backup, keeping backup and loose files for {mod_name}")
             
             self.logger.info(f"Successfully restored {ba2_type} BA2 for {mod_name}")
             return True

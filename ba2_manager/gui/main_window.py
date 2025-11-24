@@ -14,10 +14,112 @@ from ba2_manager.core.ba2_handler import BA2Handler
 from ba2_manager.config import Config
 import os
 import winreg
-import webbrowser
 import sys
 import logging
 from typing import Optional
+
+
+class CenteredCheckBox(QWidget):
+    """Helper widget to center a checkbox in a table cell"""
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0,0,0,0)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        self.checkbox = QPushButton()
+        self.checkbox.setCheckable(True)
+        self.checkbox.setFixedSize(24, 24)
+        self.checkbox.clicked.connect(self.update_style)
+        
+        self.is_extracted_state = False
+        
+        layout.addWidget(self.checkbox)
+        self.update_style()
+
+    def isChecked(self) -> bool:
+        return self.checkbox.isChecked()
+        
+    def setChecked(self, state: bool) -> None:
+        self.checkbox.setChecked(state)
+        self.update_style()
+        
+    def checkState(self) -> Qt.CheckState:
+        return Qt.CheckState.Checked if self.checkbox.isChecked() else Qt.CheckState.Unchecked
+        
+    def setCheckState(self, state: Qt.CheckState) -> None:
+        self.checkbox.setChecked(state == Qt.CheckState.Checked)
+        self.update_style()
+        
+    def set_extracted(self, is_extracted: bool):
+        """Set the visual state for extracted/restored"""
+        self.is_extracted_state = is_extracted
+        # If extracted, it must be checked initially
+        if is_extracted:
+            self.checkbox.setChecked(True)
+        else:
+            self.checkbox.setChecked(False)
+        self.update_style()
+
+    def update_style(self):
+        """Update the button style based on state"""
+        is_checked = self.checkbox.isChecked()
+        
+        if self.is_extracted_state:
+            if is_checked:
+                # State: Extracted (Green)
+                self.checkbox.setText("✓")
+                self.checkbox.setStyleSheet("""
+                    QPushButton {
+                        background-color: #2D5016;
+                        border: 1px solid #4CAF50;
+                        color: white;
+                        border-radius: 4px;
+                        font-weight: bold;
+                    }
+                """)
+                self.checkbox.setToolTip("Mod is Extracted")
+            else:
+                # State: Pending Restore (Red/Warning)
+                self.checkbox.setText("✕")
+                self.checkbox.setStyleSheet("""
+                    QPushButton {
+                        background-color: #501616;
+                        border: 1px solid #FF5252;
+                        color: white;
+                        border-radius: 4px;
+                        font-weight: bold;
+                    }
+                """)
+                self.checkbox.setToolTip("Will be Restored (Click Apply)")
+        else:
+            if is_checked:
+                # State: Pending Extract (Blue/Standard)
+                self.checkbox.setText("✓")
+                self.checkbox.setStyleSheet("""
+                    QPushButton {
+                        background-color: #1E88E5;
+                        border: 1px solid #64B5F6;
+                        color: white;
+                        border-radius: 4px;
+                        font-weight: bold;
+                    }
+                """)
+                self.checkbox.setToolTip("Will be Extracted (Click Apply)")
+            else:
+                # State: Packed (Grey/Empty)
+                self.checkbox.setText("")
+                self.checkbox.setStyleSheet("""
+                    QPushButton {
+                        background-color: #333333;
+                        border: 1px solid #666666;
+                        border-radius: 4px;
+                    }
+                    QPushButton:hover {
+                        border: 1px solid #999999;
+                    }
+                """)
+                self.checkbox.setToolTip("Mod is Packed")
 
 
 class MainWindow(QMainWindow):
@@ -33,33 +135,29 @@ class MainWindow(QMainWindow):
         
         self.config = Config()
         
-        # Detect MO2 installation first to establish a portable root
-        self.logger.debug("Detecting MO2 installation...")
+        # Detect MO2 installation only if ModOrganizer.ini sits beside the app
+        self.logger.debug("Detecting MO2 installation (application directory only)...")
         mo2_root = self.detect_mo2_installation()
         if mo2_root:
             self.logger.debug(f"MO2 root found: {mo2_root}")
         else:
-            self.logger.debug("MO2 root not found, using portable mode")
+            self.logger.debug("ModOrganizer.ini not found near application; user must configure paths manually")
         
         # Initialize paths with defaults or detection
         mo2_mods_dir = self.config.get("mo2_mods_dir", "")
-        if not mo2_mods_dir or not os.path.exists(mo2_mods_dir):
-            if mo2_root:
-                # Check for custom mod directory in ModOrganizer.ini
-                custom_mods_dir = self.get_custom_mods_directory(mo2_root)
-                if custom_mods_dir and custom_mods_dir.exists():
-                    mo2_mods_dir = str(custom_mods_dir)
-                else:
-                    mo2_mods_dir = str(mo2_root / "mods")
-                self.config.set("mo2_mods_dir", mo2_mods_dir)
-                self.logger.debug(f"Set mo2_mods_dir: {mo2_mods_dir}")
+        if mo2_mods_dir and os.path.exists(mo2_mods_dir):
+            self.logger.debug(f"Using configured MO2 mods directory: {mo2_mods_dir}")
+        else:
+            if mo2_mods_dir:
+                self.logger.warning(f"Configured MO2 mods directory not found: {mo2_mods_dir}. Please update Settings")
             else:
-                mo2_mods_dir = "mods"
-                self.logger.debug("Using default mods directory: mods")
+                self.logger.debug("MO2 mods directory not configured yet; waiting for user selection")
+            mo2_mods_dir = ""
+            if mo2_root:
+                self.logger.debug(f"ModOrganizer.ini detected at {mo2_root}, but will wait for user confirmation in Settings")
 
         # Enforce portable backup directory structure
-        # If we found MO2, backups go to MO2/BA2_Manager_Backups
-        # Otherwise they go to ./BA2_Manager_Backups
+        # Backups should always be relative to MO2, never the application directory
         backup_dir = self.config.get("backup_dir", "")
         # Always update backup_dir if we found MO2, to ensure portability
         if mo2_root:
@@ -67,17 +165,25 @@ class MainWindow(QMainWindow):
             self.config.set("backup_dir", backup_dir)
             self.logger.debug(f"Set backup_dir (MO2): {backup_dir}")
         elif not backup_dir:
-            backup_dir = "BA2_Manager_Backups"
-            self.config.set("backup_dir", backup_dir)
-            self.logger.debug(f"Set backup_dir (portable): {backup_dir}")
+            # No MO2 found and no backup_dir configured
+            # BA2Handler will default to relative path based on mo2_mods_dir
+            # Don't set a relative path in config - let the handler determine it
+            backup_dir = None
+            self.logger.debug("Backup dir will be determined by BA2Handler based on mo2_mods_dir")
+
+        mo2_configured = bool(mo2_mods_dir and os.path.exists(mo2_mods_dir))
+        mo2_detection_root = Path(mo2_mods_dir).parent if mo2_configured else mo2_root
 
         archive2_path = self.config.get("archive2_path", "")
+        if archive2_path and not Path(archive2_path).exists():
+            self.logger.warning(f"Configured Archive2.exe not found at {archive2_path}; re-detecting")
+            archive2_path = ""
         fo4_path = self.config.get("fo4_path", "")
         
         # Auto-detect FO4 path from MO2 if missing
         if not fo4_path and mo2_root:
             self.logger.debug("Detecting Fallout 4 path from MO2...")
-            detected_fo4 = self.detect_fo4_from_mo2(mo2_root)
+            detected_fo4 = self.detect_fo4_from_mo2(str(mo2_root))
             if detected_fo4:
                 self.config.set("fo4_path", detected_fo4)
                 fo4_path = detected_fo4
@@ -87,23 +193,39 @@ class MainWindow(QMainWindow):
 
         # Auto-detect Archive2 if missing
         if not archive2_path:
-            self.logger.debug("Detecting Archive2.exe...")
-            # Try registry first
-            detected = self.detect_archive2_from_registry()
-            if detected:
-                self.config.set("archive2_path", detected)
-                archive2_path = detected
-                self.logger.debug(f"Archive2.exe found in registry: {detected}")
-            # If not in registry, try FO4 path if we have it
-            elif fo4_path:
-                self.logger.debug(f"Checking Fallout 4 Tools directory...")
-                archive2_candidate = Path(fo4_path) / "Tools" / "Archive2" / "Archive2.exe"
-                if archive2_candidate.exists():
-                    self.config.set("archive2_path", str(archive2_candidate))
-                    archive2_path = str(archive2_candidate)
-                    self.logger.debug(f"Archive2.exe found in FO4 tools: {archive2_candidate}")
+            if not mo2_configured or not mo2_detection_root:
+                self.logger.debug("MO2 not configured; delaying Archive2 auto-detection until MO2 is selected")
+            else:
+                self.logger.debug("Detecting Archive2.exe...")
+                detected = None
+
+                # 1) Look inside the MO2 root (portable installs often bundle Archive2 here)
+                mo2_candidate = Path(mo2_detection_root) / "Archive2.exe"
+                if mo2_candidate.exists():
+                    detected = mo2_candidate
+                    self.logger.debug(f"Archive2.exe found in MO2 root: {mo2_candidate}")
                 else:
-                    self.logger.debug(f"Archive2.exe not found at: {archive2_candidate}")
+                    self.logger.debug(f"Archive2.exe not found in MO2 root: {mo2_candidate}")
+
+                # 2) Look inside Fallout 4 Tools directory if not already found
+                if not detected and fo4_path:
+                    archive2_candidate = Path(fo4_path) / "Tools" / "Archive2" / "Archive2.exe"
+                    if archive2_candidate.exists():
+                        detected = archive2_candidate
+                        self.logger.debug(f"Archive2.exe found in FO4 tools: {archive2_candidate}")
+                    else:
+                        self.logger.debug(f"Archive2.exe not found at: {archive2_candidate}")
+
+                # 3) Fall back to registry detection last
+                if not detected:
+                    registry_candidate = self.detect_archive2_from_registry()
+                    if registry_candidate:
+                        detected = Path(registry_candidate)
+                        self.logger.debug(f"Archive2.exe found via registry: {registry_candidate}")
+
+                if detected:
+                    archive2_path = str(detected)
+                    self.config.set("archive2_path", archive2_path)
         else:
             self.logger.debug(f"Archive2.exe already configured: {archive2_path}")
                 
@@ -125,6 +247,7 @@ class MainWindow(QMainWindow):
         self.blink_state = False
         
         self.init_ui()
+        self.show_default_view()
     
     def get_custom_mods_directory(self, mo2_root: Path) -> Optional[Path]:
         """
@@ -174,43 +297,15 @@ class MainWindow(QMainWindow):
             pass
         return None
     
-    def detect_mo2_installation(self) -> Path:
-        """
-        Search for ModOrganizer.ini in current, parent, and sibling directories.
-        Useful if the app is placed inside or near the MO2 folder.
-        """
-        # Check current dir and up to 3 levels up
-        current = Path.cwd()
-        # Also check the executable's directory (important for PyInstaller)
-        exe_dir = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).parent
-        
-        search_paths = [current, exe_dir] + list(current.parents)[:3] + list(exe_dir.parents)[:3]
-        
-        self.logger.debug(f"Searching for ModOrganizer.ini in {len(search_paths)} paths:")
-        self.logger.debug(f"  Current dir: {current}")
-        self.logger.debug(f"  Exe dir: {exe_dir}")
-        
-        # Check direct paths first
-        for path in search_paths:
-            ini_path = path / "ModOrganizer.ini"
-            if ini_path.exists():
-                self.logger.debug(f"ModOrganizer.ini found at: {ini_path}")
-                return path
-            self.logger.debug(f"  Checked (not found): {ini_path}")
-        
-        # Check sibling directories for mo2_fo4 or MO2 folders
-        self.logger.debug("Checking sibling directories...")
-        for path in [current, exe_dir]:
-            if path.parent.exists():
-                for sibling in path.parent.iterdir():
-                    if sibling.is_dir() and sibling.name.lower() in ['mo2_fo4', 'mo2', 'mods']:
-                        ini_path = sibling / "ModOrganizer.ini"
-                        if ini_path.exists():
-                            self.logger.debug(f"ModOrganizer.ini found in sibling: {ini_path}")
-                            return sibling
-                        self.logger.debug(f"  Sibling checked (not found): {ini_path}")
-        
-        self.logger.debug("ModOrganizer.ini not found in any search path")
+    def detect_mo2_installation(self) -> Optional[Path]:
+        """Return MO2 root only if ModOrganizer.ini sits beside the application."""
+        app_dir = Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parent
+        ini_path = app_dir / "ModOrganizer.ini"
+        self.logger.debug(f"Looking for ModOrganizer.ini in application directory: {ini_path}")
+        if ini_path.exists():
+            self.logger.debug("ModOrganizer.ini located next to application")
+            return app_dir
+        self.logger.debug("ModOrganizer.ini not found next to application; skipping auto-detection")
         return None
 
     def init_ui(self):
@@ -280,9 +375,20 @@ class MainWindow(QMainWindow):
         outer_layout.addLayout(content_layout)
         
         central_widget.setLayout(outer_layout)
-        
-        # Show BA2 Information by default
-        self.show_ba2_info()
+
+    def show_default_view(self):
+        """Open Settings when critical paths missing, otherwise BA2 info."""
+        required_values = [
+            self.config.get("mo2_mods_dir", ""),
+            self.config.get("archive2_path", ""),
+            self.config.get("fo4_path", "")
+        ]
+        if all(required_values):
+            self.logger.debug("All critical paths configured; showing BA2 Information view")
+            self.show_ba2_info()
+        else:
+            self.logger.info("Critical paths missing; opening Settings view by default")
+            self.show_settings()
     
     def create_header(self):
         """Create header with title and disclaimer"""
@@ -425,6 +531,18 @@ class MainWindow(QMainWindow):
             self.ba2_main_progress.setValue(limit)
             self.ba2_main_value.setText(str(value))
             self.ba2_main_value.setStyleSheet("color: #FF0000; font-weight: bold;")
+            # Set bar to red when over limit
+            self.ba2_main_progress.setStyleSheet("""
+                QProgressBar {
+                    border: 2px solid #FF0000;
+                    border-radius: 5px;
+                    background-color: #2b2b2b;
+                }
+                QProgressBar::chunk {
+                    background-color: #FF0000;
+                    border-radius: 3px;
+                }
+            """)
             return
         
         if self.blink_timer.isActive():
@@ -454,6 +572,18 @@ class MainWindow(QMainWindow):
             self.ba2_texture_progress.setValue(limit)
             self.ba2_texture_value.setText(str(value))
             self.ba2_texture_value.setStyleSheet("color: #FF0000; font-weight: bold;")
+            # Set bar to red when over limit
+            self.ba2_texture_progress.setStyleSheet("""
+                QProgressBar {
+                    border: 2px solid #FF0000;
+                    border-radius: 5px;
+                    background-color: #2b2b2b;
+                }
+                QProgressBar::chunk {
+                    background-color: #FF0000;
+                    border-radius: 3px;
+                }
+            """)
             return
         
         if self.blink_timer.isActive():
@@ -765,14 +895,24 @@ class MainWindow(QMainWindow):
         self.mod_list.setColumnCount(4)
         self.mod_list.setHorizontalHeaderLabels(["Mod Name", "Main BA2", "Texture BA2", "Nexus Link"])
         self.mod_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.mod_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.mod_list.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.mod_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.mod_list.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         self.mod_list.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        # Set fixed width for checkbox columns to enable centering
+        self.mod_list.setColumnWidth(1, 80)
+        self.mod_list.setColumnWidth(2, 80)
         self.mod_list.verticalHeader().setVisible(False)
+        self.mod_list.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.mod_list.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        # Disable default item hover to avoid single-cell highlight confusion
+        # We rely on row selection for visual feedback
+        self.mod_list.setStyleSheet("""
+            QTableWidget::item:hover { background-color: transparent; }
+            QTableWidget::item:selected { background-color: #0078D7; color: white; }
+        """)
         
         self.mod_extracted_status = {}  # {index: bool} - tracks current state of each mod
-        manage_layout.addWidget(self.mod_list)
+        manage_layout.addWidget(self.mod_list, 1)
         
         # === ACTION BUTTON ===
         # Single button applies all checkbox changes at once
@@ -802,7 +942,6 @@ class MainWindow(QMainWindow):
         self.mod_status.setText("Loading mod list...")
         manage_layout.addWidget(self.mod_status)
         
-        manage_layout.addStretch()
         manage_widget.setLayout(manage_layout)
         self.content_layout.addWidget(manage_widget)
         
@@ -831,8 +970,16 @@ class MainWindow(QMainWindow):
         list_label = QLabel("Available CC Content:")
         cc_layout.addWidget(list_label)
         
-        self.cc_list = QListWidget()
-        cc_layout.addWidget(self.cc_list)
+        self.cc_table = QTableWidget()
+        self.cc_table.setColumnCount(2)
+        self.cc_table.setHorizontalHeaderLabels(["Status", "Creation Club Content"])
+        self.cc_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.cc_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.cc_table.setColumnWidth(0, 60)
+        self.cc_table.verticalHeader().setVisible(False)
+        self.cc_table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.cc_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        cc_layout.addWidget(self.cc_table, 1)
         
         # Buttons
         button_layout = QHBoxLayout()
@@ -861,7 +1008,6 @@ class MainWindow(QMainWindow):
         self.cc_status.setMaximumHeight(60)
         cc_layout.addWidget(self.cc_status)
         
-        cc_layout.addStretch()
         cc_widget.setLayout(cc_layout)
         self.content_layout.addWidget(cc_widget)
         
@@ -884,7 +1030,10 @@ class MainWindow(QMainWindow):
         title.setFont(title_font)
         settings_layout.addWidget(title)
         
-        instructions = QLabel("Click 'Find' to locate executable files. Paths will be automatically configured.")
+        instructions = QLabel(
+            "Please open Mod Organizer 2 and configure it to manage a Fallout 4 installation on your system, "
+            "then restart this application. Use the controls below to set required paths."
+        )
         settings_layout.addWidget(instructions)
         
         # Settings group
@@ -909,8 +1058,9 @@ class MainWindow(QMainWindow):
         self.settings_archive2_display.setReadOnly(True)
         
         current_archive2 = self.config.get("archive2_path", "")
-        # Auto-detect if empty
-        if not current_archive2:
+        # Auto-detect Archive2 only if MO2 is configured
+        mo2_mods_dir = self.config.get("mo2_mods_dir", "")
+        if not current_archive2 and mo2_mods_dir and os.path.exists(mo2_mods_dir):
             detected = self.detect_archive2_from_registry()
             if detected:
                 current_archive2 = detected
@@ -930,21 +1080,6 @@ class MainWindow(QMainWindow):
              link_label.setOpenExternalLinks(True)
              form_layout.addRow("", link_label)
         
-        # Fallout 4
-        fo4_layout = QHBoxLayout()
-        self.settings_fo4_display = QLineEdit()
-        self.settings_fo4_display.setReadOnly(True)
-        self.settings_fo4_display.setText(self.config.get("fo4_path", ""))
-        fo4_layout.addWidget(self.settings_fo4_display)
-        find_fo4 = QPushButton("Find Fallout4.exe")
-        find_fo4.setMaximumWidth(200)
-        find_fo4.clicked.connect(self.find_fallout4_exe)
-        fo4_layout.addWidget(find_fo4)
-        form_layout.addRow("Fallout 4:", fo4_layout)
-        
-        # DEBUG: Add a temporary label to confirm UI update path
-        debug_label = QLabel("DEBUG CHECKBOX TEST")
-        form_layout.addRow(debug_label)
         # Debug Logging Checkbox
         self.debug_logging_checkbox = QCheckBox("Enable Debug Logging (for troubleshooting)")
         self.debug_logging_checkbox.setChecked(self.config.get("debug_logging", False))
@@ -955,8 +1090,11 @@ class MainWindow(QMainWindow):
         # Status
         self.settings_status = QTextEdit()
         self.settings_status.setReadOnly(True)
-        self.settings_status.setMaximumHeight(60)
-        settings_layout.addWidget(QLabel("Configuration Status:"))
+        # Reduced height by approx 2 lines (was 160, now 120 or less depending on font)
+        # Actually, user asked to shrink by 2 lines. 160 is quite tall.
+        # Let's try 100.
+        self.settings_status.setMaximumHeight(100)
+        # Removed "Configuration Status:" label as requested
         settings_layout.addWidget(self.settings_status)
         self.update_settings_status()
         
@@ -979,7 +1117,7 @@ class MainWindow(QMainWindow):
         settings_widget.setLayout(settings_layout)
         self.content_layout.addWidget(settings_widget)
     
-    def safe_set_text(self, widget_name, text):
+    def safe_set_text(self, widget_name: str, text: str) -> None:
         """Safely set text on a widget that might have been deleted"""
         try:
             if hasattr(self, widget_name):
@@ -990,7 +1128,7 @@ class MainWindow(QMainWindow):
             # Widget has been deleted (C++ object gone)
             pass
 
-    def safe_set_style(self, widget_name, style):
+    def safe_set_style(self, widget_name: str, style: str) -> None:
         """Safely set stylesheet on a widget that might have been deleted"""
         try:
             if hasattr(self, widget_name):
@@ -1005,7 +1143,10 @@ class MainWindow(QMainWindow):
         try:
             fo4_path = self.config.get("fo4_path", "")
             if not fo4_path:
-                self.safe_set_text('info_status', "ERROR: Fallout 4 path not configured in Settings")
+                self.safe_set_text(
+                    'info_status',
+                    "Please open Mod Organizer 2 and configure it to manage a Fallout 4 installation on your system, then restart this application."
+                )
                 self.update_ba2_bar_style_main(0, 255)
                 self.update_ba2_bar_style_texture(0, 254)
                 return
@@ -1105,33 +1246,17 @@ class MainWindow(QMainWindow):
                 
                 # === COLUMN 1: MAIN BA2 CHECKBOX ===
                 if mod.has_main_ba2:
-                    main_checkbox = QTableWidgetItem()
-                    main_checkbox.setFlags(main_checkbox.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                    
-                    if mod.main_extracted:
-                        # Already extracted - show green
-                        main_checkbox.setCheckState(Qt.CheckState.Checked)
-                        main_checkbox.setForeground(QColor("#4CAF50"))
-                    else:
-                        # Not extracted yet
-                        main_checkbox.setCheckState(Qt.CheckState.Unchecked)
-                    
-                    self.mod_list.setItem(i, 1, main_checkbox)
+                    # Create centered checkbox widget
+                    main_widget = CenteredCheckBox()
+                    main_widget.set_extracted(mod.main_extracted)
+                    self.mod_list.setCellWidget(i, 1, main_widget)
                 
                 # === COLUMN 2: TEXTURE BA2 CHECKBOX ===
                 if mod.has_texture_ba2:
-                    texture_checkbox = QTableWidgetItem()
-                    texture_checkbox.setFlags(texture_checkbox.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                    
-                    if mod.texture_extracted:
-                        # Already extracted - show green
-                        texture_checkbox.setCheckState(Qt.CheckState.Checked)
-                        texture_checkbox.setForeground(QColor("#4CAF50"))
-                    else:
-                        # Not extracted yet
-                        texture_checkbox.setCheckState(Qt.CheckState.Unchecked)
-                    
-                    self.mod_list.setItem(i, 2, texture_checkbox)
+                    # Create centered checkbox widget
+                    texture_widget = CenteredCheckBox()
+                    texture_widget.set_extracted(mod.texture_extracted)
+                    self.mod_list.setCellWidget(i, 2, texture_widget)
                 
                 # === COLUMN 3: NEXUS LINK ===
                 if mod.nexus_url:
@@ -1153,13 +1278,15 @@ class MainWindow(QMainWindow):
         """
         Load and populate the CC packages list.
         
-        Gets all available CC packages from ba2_handler and populates the list
+        Gets all available CC packages from ba2_handler and populates the table
         with checkable items showing which are currently active.
         """
         try:
             fo4_path = self.config.get("fo4_path", "")
             if not fo4_path:
-                self.cc_status.setText("ERROR: Fallout 4 path not configured in Settings")
+                self.cc_status.setText(
+                    "Please open Mod Organizer 2 and configure it to manage a Fallout 4 installation on your system, then restart this application."
+                )
                 return
             
             # Ensure master backup exists (created on first load)
@@ -1168,19 +1295,22 @@ class MainWindow(QMainWindow):
             # Get CC packages with their active status
             cc_packages = self.ba2_handler.get_cc_packages(fo4_path)
             
-            self.cc_list.clear()
-            for plugin_id, display_name, is_active in cc_packages:
-                item = QListWidgetItem(display_name)
-                item.setData(Qt.ItemDataRole.UserRole, plugin_id)  # Store plugin ID
+            self.cc_table.setRowCount(0)
+            self.cc_table.setRowCount(len(cc_packages))
+            
+            for row, (plugin_id, display_name, is_active) in enumerate(cc_packages):
+                # Status Column (CenteredCheckBox)
+                status_widget = CenteredCheckBox()
+                # Treat "Active" as "Extracted" (Green) and "Inactive" as "Packed" (Grey)
+                status_widget.set_extracted(is_active)
+                # Store plugin ID in the widget for retrieval
+                status_widget.setProperty("plugin_id", plugin_id)
+                self.cc_table.setCellWidget(row, 0, status_widget)
                 
-                # Set checked state based on active status
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                if is_active:
-                    item.setCheckState(Qt.CheckState.Checked)
-                else:
-                    item.setCheckState(Qt.CheckState.Unchecked)
-                
-                self.cc_list.addItem(item)
+                # Name Column
+                name_item = QTableWidgetItem(display_name)
+                name_item.setFlags(name_item.flags() ^ Qt.ItemFlag.ItemIsEditable)  # Read-only
+                self.cc_table.setItem(row, 1, name_item)
             
             # Update status
             active_count = sum(1 for _, _, is_active in cc_packages if is_active)
@@ -1224,13 +1354,13 @@ class MainWindow(QMainWindow):
                 if not mod_name:
                     continue
                 
-                # Get main and texture checkbox items (columns 1 and 2)
-                main_item = self.mod_list.item(i, 1)
-                texture_item = self.mod_list.item(i, 2)
+                # Get main and texture checkbox widgets (columns 1 and 2)
+                main_widget = self.mod_list.cellWidget(i, 1)
+                texture_widget = self.mod_list.cellWidget(i, 2)
                 
                 # Check if checkboxes are present and their current states
-                main_checked = main_item and main_item.checkState() == Qt.CheckState.Checked
-                texture_checked = texture_item and texture_item.checkState() == Qt.CheckState.Checked
+                main_checked = main_widget and main_widget.isChecked()
+                texture_checked = texture_widget and texture_widget.isChecked()
                 
                 # Get tracked states (what was extracted before this operation)
                 mod_state = self.mod_ba2_state.get(mod_name, {})
@@ -1243,7 +1373,7 @@ class MainWindow(QMainWindow):
                     need_backup = True
                 
                 # === PROCESS MAIN BA2 ===
-                if main_item:
+                if main_widget:
                     if main_checked != main_was_extracted:
                         changes_made = True
                         
@@ -1253,26 +1383,24 @@ class MainWindow(QMainWindow):
                             should_backup = need_backup and not texture_was_extracted
                             
                             if self.ba2_handler.extract_mod_ba2(mod_name, "main", should_backup):
-                                main_item.setCheckState(Qt.CheckState.Checked)
-                                main_item.setForeground(QColor("#4CAF50"))
+                                main_widget.set_extracted(True)
                                 self.mod_ba2_state[mod_name]['main'] = True
                                 extracted_count += 1
                             else:
-                                main_item.setCheckState(Qt.CheckState.Unchecked)
+                                main_widget.setCheckState(Qt.CheckState.Unchecked)
                                 failed_count += 1
                         else:
                             # User unchecked -> RESTORE main BA2
                             if self.ba2_handler.restore_mod_ba2(mod_name, "main"):
-                                main_item.setCheckState(Qt.CheckState.Unchecked)
-                                main_item.setForeground(self.mod_list.palette().text())
+                                main_widget.set_extracted(False)
                                 self.mod_ba2_state[mod_name]['main'] = False
                                 restored_count += 1
                             else:
-                                main_item.setCheckState(Qt.CheckState.Checked)
+                                main_widget.setCheckState(Qt.CheckState.Checked)
                                 failed_count += 1
                 
                 # === PROCESS TEXTURE BA2 ===
-                if texture_item:
+                if texture_widget:
                     if texture_checked != texture_was_extracted:
                         changes_made = True
                         
@@ -1282,22 +1410,20 @@ class MainWindow(QMainWindow):
                             should_backup = need_backup and not main_was_extracted
                             
                             if self.ba2_handler.extract_mod_ba2(mod_name, "texture", should_backup):
-                                texture_item.setCheckState(Qt.CheckState.Checked)
-                                texture_item.setForeground(QColor("#4CAF50"))
+                                texture_widget.set_extracted(True)
                                 self.mod_ba2_state[mod_name]['texture'] = True
                                 extracted_count += 1
                             else:
-                                texture_item.setCheckState(Qt.CheckState.Unchecked)
+                                texture_widget.setCheckState(Qt.CheckState.Unchecked)
                                 failed_count += 1
                         else:
                             # User unchecked -> RESTORE texture BA2
                             if self.ba2_handler.restore_mod_ba2(mod_name, "texture"):
-                                texture_item.setCheckState(Qt.CheckState.Unchecked)
-                                texture_item.setForeground(self.mod_list.palette().text())
+                                texture_widget.set_extracted(False)
                                 self.mod_ba2_state[mod_name]['texture'] = False
                                 restored_count += 1
                             else:
-                                texture_item.setCheckState(Qt.CheckState.Checked)
+                                texture_widget.setCheckState(Qt.CheckState.Checked)
                                 failed_count += 1
             
             # === REPORT RESULTS ===
@@ -1414,9 +1540,10 @@ class MainWindow(QMainWindow):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            for i in range(self.cc_list.count()):
-                item = self.cc_list.item(i)
-                item.setCheckState(Qt.CheckState.Checked)
+            for row in range(self.cc_table.rowCount()):
+                widget = self.cc_table.cellWidget(row, 0)
+                if isinstance(widget, CenteredCheckBox):
+                    widget.setChecked(True)
             self.apply_cc_changes()
 
     def disable_all_cc(self):
@@ -1430,9 +1557,10 @@ class MainWindow(QMainWindow):
         )
         
         if reply == QMessageBox.StandardButton.Yes:
-            for i in range(self.cc_list.count()):
-                item = self.cc_list.item(i)
-                item.setCheckState(Qt.CheckState.Unchecked)
+            for row in range(self.cc_table.rowCount()):
+                widget = self.cc_table.cellWidget(row, 0)
+                if isinstance(widget, CenteredCheckBox):
+                    widget.setChecked(False)
             self.apply_cc_changes()
 
     def apply_cc_changes(self):
@@ -1440,23 +1568,36 @@ class MainWindow(QMainWindow):
         try:
             fo4_path = self.config.get("fo4_path", "")
             if not fo4_path:
-                QMessageBox.warning(self, "Error", "Fallout 4 path not configured.")
+                QMessageBox.warning(
+                    self,
+                    "Error",
+                    "Please open Mod Organizer 2 and configure it to manage a Fallout 4 installation on your system, then restart this application."
+                )
                 return
                 
             enabled_plugins = []
             
             # Gather all checked items
-            for i in range(self.cc_list.count()):
-                item = self.cc_list.item(i)
-                if item.checkState() == Qt.CheckState.Checked:
-                    # UserRole stores the full filename (e.g. "ccbgsfo4001.esl")
-                    plugin_filename = item.data(Qt.ItemDataRole.UserRole)
+            for row in range(self.cc_table.rowCount()):
+                widget = self.cc_table.cellWidget(row, 0)
+                if isinstance(widget, CenteredCheckBox) and widget.isChecked():
+                    # Property stores the full filename (e.g. "ccbgsfo4001.esl")
+                    plugin_filename = widget.property("plugin_id")
                     if plugin_filename:
                         enabled_plugins.append(plugin_filename)
             
             # Call handler to write the file
             if self.ba2_handler.write_ccc_file(fo4_path, enabled_plugins):
                 self.cc_status.setText(f"Successfully updated Fallout4.ccc with {len(enabled_plugins)} active plugins.")
+                
+                # Update visual state to reflect applied changes
+                for row in range(self.cc_table.rowCount()):
+                    widget = self.cc_table.cellWidget(row, 0)
+                    if isinstance(widget, CenteredCheckBox):
+                        # If it was checked (enabled), it is now "Extracted" (Active/Green)
+                        # If it was unchecked (disabled), it is now "Packed" (Inactive/Grey)
+                        widget.set_extracted(widget.isChecked())
+                
                 self.refresh_ba2_count()
             else:
                 self.cc_status.setText("Error updating Fallout4.ccc. Check logs for details.")
@@ -1486,14 +1627,30 @@ class MainWindow(QMainWindow):
             # Attempt to auto-detect Fallout 4 path from MO2 config
             fo4_path = self.detect_fo4_from_mo2(mo2_root)
             if fo4_path:
-                self.settings_fo4_display.setText(fo4_path)
                 self.config.set("fo4_path", fo4_path)
-                
-                # If we found FO4, try to find Archive2 inside it
-                archive2_path = Path(fo4_path) / "Tools" / "Archive2" / "Archive2.exe"
-                if archive2_path.exists():
-                    self.settings_archive2_display.setText(str(archive2_path))
-                    self.config.set("archive2_path", str(archive2_path))
+            
+            # Auto-detect Archive2.exe using comprehensive search
+            detected_archive2 = None
+            
+            # 1) Check MO2 root directory first (portable installs)
+            mo2_archive2 = Path(mo2_root) / "Archive2.exe"
+            if mo2_archive2.exists():
+                detected_archive2 = str(mo2_archive2)
+            
+            # 2) Check Fallout 4 Tools directory if FO4 was detected
+            if not detected_archive2 and fo4_path:
+                fo4_archive2 = Path(fo4_path) / "Tools" / "Archive2" / "Archive2.exe"
+                if fo4_archive2.exists():
+                    detected_archive2 = str(fo4_archive2)
+            
+            # 3) Fall back to registry detection
+            if not detected_archive2:
+                detected_archive2 = self.detect_archive2_from_registry()
+            
+            # Update UI and config if found
+            if detected_archive2:
+                self.settings_archive2_display.setText(detected_archive2)
+                self.config.set("archive2_path", detected_archive2)
             
             # Reinitialize BA2Handler with new MO2 path
             self.ba2_handler = BA2Handler(
@@ -1536,24 +1693,6 @@ class MainWindow(QMainWindow):
         elif file_path:
             QMessageBox.warning(self, "Error", "Please select Archive2.exe")
     
-    def find_fallout4_exe(self):
-        """Find Fallout4.exe and configure paths"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Find Fallout4.exe",
-            "",
-            "Executable Files (*.exe)"
-        )
-        if file_path and file_path.lower().endswith("fallout4.exe"):
-            # Extract Fallout 4 root (parent directory of Fallout4.exe)
-            fo4_root = str(Path(file_path).parent)
-            self.settings_fo4_display.setText(fo4_root)
-            self.config.set("fo4_path", fo4_root)
-            self.update_settings_status()
-            QMessageBox.information(self, "Success", f"Fallout 4 found!\nPath: {fo4_root}")
-        elif file_path:
-            QMessageBox.warning(self, "Error", "Please select Fallout4.exe")
-    
     def detect_archive2_from_registry(self):
         """Attempt to detect Archive2.exe path from Registry"""
         try:
@@ -1575,7 +1714,7 @@ class MainWindow(QMainWindow):
             return None
         return None
 
-    def detect_fo4_from_mo2(self, mo2_root: str) -> str:
+    def detect_fo4_from_mo2(self, mo2_root: str) -> Optional[str]:
         """
         Attempt to detect Fallout 4 path from ModOrganizer.ini
         
@@ -1622,9 +1761,6 @@ class MainWindow(QMainWindow):
         archive2_path = self.config.get("archive2_path", "")
         fo4_path = self.config.get("fo4_path", "")
         
-        status_lines.append("Configuration Status:")
-        status_lines.append("-" * 40)
-        
         if mo2_path:
             status_lines.append("✓ MO2 Mods: Configured")
         else:
@@ -1639,6 +1775,9 @@ class MainWindow(QMainWindow):
             status_lines.append("✓ Fallout 4: Configured")
         else:
             status_lines.append("✗ Fallout 4: Not configured")
+
+        status_lines.append("")
+        status_lines.append("Note: You must select the ModOrganizer.exe location before using BA2 features.")
         
         try:
             self.settings_status.setText("\n".join(status_lines))
@@ -1654,7 +1793,6 @@ class MainWindow(QMainWindow):
                 self.config.update({
                     "archive2_path": self.settings_archive2_display.text(),
                     "mo2_mods_dir": self.settings_mo2_display.text(),
-                    "fo4_path": self.settings_fo4_display.text(),
                     "debug_logging": self.debug_logging_checkbox.isChecked(),
                 })
             except RuntimeError:
@@ -1737,13 +1875,32 @@ class MainWindow(QMainWindow):
             # Iterate through all items
             for i in range(self.mod_list.rowCount()):
                 item = self.mod_list.item(i, 0)
+                if not item:
+                    continue
+                    
                 mod_name = item.data(Qt.ItemDataRole.UserRole)
+                if not mod_name:
+                    continue
                 
-                # Check if currently extracted
-                if self.mod_extracted_status.get(i, False):
+                # Check if currently extracted using the new state tracking
+                mod_state = self.mod_ba2_state.get(mod_name, {})
+                is_extracted = mod_state.get('main', False) or mod_state.get('texture', False)
+                
+                if is_extracted:
                     if self.ba2_handler.restore_mod(mod_name):
-                        self.unmark_mod_extracted(i)
-                        item.setCheckState(Qt.CheckState.Unchecked)
+                        # Update UI for Main BA2
+                        main_widget = self.mod_list.cellWidget(i, 1)
+                        if main_widget:
+                            main_widget.set_extracted(False)
+                        
+                        # Update UI for Texture BA2
+                        texture_widget = self.mod_list.cellWidget(i, 2)
+                        if texture_widget:
+                            texture_widget.set_extracted(False)
+                        
+                        # Update state tracking
+                        self.mod_ba2_state[mod_name] = {'main': False, 'texture': False}
+                        
                         restored_count += 1
                     else:
                         failed_count += 1
@@ -1782,5 +1939,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
         
-        QMessageBox.information(self, "MIT License", license_text)
+        # Create a larger dialog to prevent text wrapping
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("MIT License")
+        msg_box.setText(license_text)
+        msg_box.setMinimumWidth(600)
+        msg_box.exec()
 
