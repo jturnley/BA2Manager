@@ -356,7 +356,7 @@ class MainWindow(QMainWindow):
         exit_layout.addStretch()
         
         # Version label
-        version_label = QLabel("v1.1.1")
+        version_label = QLabel("v1.1.2")
         version_label.setStyleSheet("color: gray; margin-right: 10px;")
         exit_layout.addWidget(version_label)
         
@@ -742,16 +742,15 @@ class MainWindow(QMainWindow):
         Display the Manage Mod BA2s view with checkbox-based extraction/restoration interface.
         
         WORKFLOW:
-        1. User sees list of all BA2 mods with checkboxes (unchecked by default)
-        2. By default, all mods are unchecked (normal BA2 archive format state)
-        3. User checks mods they want to extract (decompress to loose files)
-        4. User clicks 'Apply Changes' to execute the operation
-        5. Checked mods turn GREEN (extracted/loose files state)
-        6. Unchecked mods turn BLACK (normal BA2 archive state)
+        1. User sees list of all BA2 mods with checkboxes
+        2. Checkboxes show current state: checked (green) = extracted, unchecked = packed BA2
+        3. User toggles checkboxes to select mods for extraction/restoration
+        4. User clicks 'Apply Changes' to execute the operations
+        5. Checkbox appearance updates to reflect new state
         
         STATE TRACKING:
-        - self.mod_extracted_status: dict mapping list index -> bool (True=extracted, False=not extracted/normal)
-        - This tracks the CURRENT state after operations, not the initial state
+        - self.mod_ba2_state: dict mapping mod_name -> {'main': bool, 'texture': bool}
+        - Tracks extraction state for each BA2 type independently
         - Used to detect changes: if checkbox state != tracked state, operation is needed
         """
         self.logger.debug("User navigated to Manage Mods tab")
@@ -803,7 +802,6 @@ class MainWindow(QMainWindow):
             QTableWidget::item:selected { background-color: #0078D7; color: white; }
         """)
         
-        self.mod_extracted_status = {}  # {index: bool} - tracks current state of each mod
         manage_layout.addWidget(self.mod_list, 1)
         
         # === ACTION BUTTON ===
@@ -1343,83 +1341,6 @@ class MainWindow(QMainWindow):
             self.mod_status.setText(f"Error applying changes: {e}")
         finally:
             self.setEnabled(True)
-    
-    def pending_extraction(self, index: int):
-        """
-        Mark a mod as PENDING EXTRACTION and update visual state.
-        
-        This is called when the user checks a checkbox to show that extraction
-        is queued/in-progress.
-        
-        UPDATES:
-        1. Item text color: Changes to GREY (#808080)
-           Grey indicates the BA2 extraction is PENDING/IN PROGRESS
-        2. Does NOT update mod_extracted_status yet (still in process)
-        
-        NOTE: This is a temporary state. After extraction completes,
-        mark_mod_extracted() is called to turn it green.
-        """
-        item = self.mod_list.item(index, 0)
-        if item is None:
-            return
-        
-        # === UPDATE VISUAL STATE ===
-        # Grey color signals: this mod extraction is PENDING
-        item.setForeground(QColor("#808080"))
-    
-    def mark_mod_extracted(self, index: int):
-        """
-        Mark a mod as EXTRACTED and update visual state.
-        
-        This is called when an extraction operation completes successfully.
-        
-        UPDATES:
-        1. Item text color: Changes to GREEN (#4CAF50)
-           Green indicates the BA2 is EXTRACTED/COMPRESSED state
-        2. Tracking dict: Sets mod_extracted_status[index] = True
-           This records the current state for future comparisons
-        
-        NOTE: This is the final state after extraction completes.
-        """
-        item = self.mod_list.item(index, 0)
-        if item is None:
-            return
-        
-        # === UPDATE VISUAL STATE ===
-        # Green color signals: this mod is in EXTRACTED state
-        item.setForeground(QColor("#4CAF50"))
-        
-        # === UPDATE TRACKING STATE ===
-        # Record that this mod is now considered extracted
-        self.mod_extracted_status[index] = True
-    
-    def unmark_mod_extracted(self, index: int):
-        """
-        Mark a mod as RESTORED and update visual state.
-        
-        This is called when the user unchecks a checkbox or when a restoration
-        operation completes successfully.
-        
-        UPDATES:
-        1. Item text color: Resets to default (Theme color)
-           Default color indicates the BA2 is RESTORED/NORMAL state
-        2. Tracking dict: Sets mod_extracted_status[index] = False
-           This records the current state for future comparisons
-        
-        NOTE: This is a UI/state update only. The actual BA2 file decompression
-        would be handled by the backend Archive2.exe integration (future feature).
-        """
-        item = self.mod_list.item(index, 0)
-        if item is None:
-            return
-        
-        # === UPDATE VISUAL STATE ===
-        # Reset color to default theme color (clears the green/grey override)
-        item.setData(Qt.ItemDataRole.ForegroundRole, None)
-        
-        # === UPDATE TRACKING STATE ===
-        # Record that this mod is now considered restored
-        self.mod_extracted_status[index] = False
     
     def enable_all_cc(self):
         """Check all CC items and apply changes with confirmation"""

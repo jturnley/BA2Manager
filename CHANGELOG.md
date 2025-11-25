@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2025-11-24
+
+### Fixed
+- Removed additional orphaned dead code methods (`pending_extraction()`, `mark_mod_extracted()`, `unmark_mod_extracted()`)
+- Removed unused `mod_extracted_status` attribute initialization
+- Updated docstrings to reflect current state tracking implementation using `mod_ba2_state`
+- Cleaned up legacy code that could cause confusion during maintenance
+
 ## [1.1.1] - 2025-11-24
 
 ### Fixed
