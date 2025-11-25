@@ -16,6 +16,8 @@ import os
 import winreg
 import sys
 import logging
+import zipfile
+from datetime import datetime
 from typing import Optional
 
 
@@ -436,6 +438,13 @@ class MainWindow(QMainWindow):
         cc_btn.clicked.connect(self.show_manage_cc)
         layout.addWidget(cc_btn)
         
+        # Merge BA2s button
+        merge_btn = QPushButton("Merge CC BA2s")
+        merge_btn.setMinimumWidth(150)
+        merge_btn.setMinimumHeight(50)
+        merge_btn.clicked.connect(self.show_merge_ba2s)
+        layout.addWidget(merge_btn)
+        
         # Settings button
         settings_btn = QPushButton("Settings")
         settings_btn.setMinimumWidth(150)
@@ -785,20 +794,22 @@ class MainWindow(QMainWindow):
         manage_layout.addWidget(backup_label)
         
         # === MOD LIST ===
-        # New layout: Mod Name | Main BA2 (checkbox) | Texture BA2 (checkbox) | Nexus Link
+        # New layout: Mod Name | Main BA2 (checkbox) | Texture BA2 (checkbox) | Merge (checkbox) | Nexus Link
         list_label = QLabel("Available BA2 Mods:")
         manage_layout.addWidget(list_label)
         
         self.mod_list = QTableWidget()
-        self.mod_list.setColumnCount(4)
-        self.mod_list.setHorizontalHeaderLabels(["Mod Name", "Main BA2", "Texture BA2", "Nexus Link"])
+        self.mod_list.setColumnCount(5)
+        self.mod_list.setHorizontalHeaderLabels(["Mod Name", "Main BA2", "Texture BA2", "Merge", "Nexus Link"])
         self.mod_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.mod_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
         self.mod_list.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.mod_list.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.mod_list.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.mod_list.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         # Set fixed width for checkbox columns to enable centering
         self.mod_list.setColumnWidth(1, 80)
         self.mod_list.setColumnWidth(2, 80)
+        self.mod_list.setColumnWidth(3, 60)
         self.mod_list.verticalHeader().setVisible(False)
         self.mod_list.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.mod_list.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -816,6 +827,11 @@ class MainWindow(QMainWindow):
         # Logic: compares current checkbox state with tracked state, performs necessary operations
         button_layout = QHBoxLayout()
         button_layout.addStretch()
+        
+        merge_selected_btn = QPushButton("Merge Selected Mods")
+        merge_selected_btn.setMaximumWidth(200)
+        merge_selected_btn.clicked.connect(self.merge_selected_mods)
+        button_layout.addWidget(merge_selected_btn)
         
         restore_all_btn = QPushButton("Restore All Extracted")
         restore_all_btn.setMaximumWidth(200)
@@ -979,7 +995,7 @@ class MainWindow(QMainWindow):
         
         # Debug Logging Checkbox
         self.debug_logging_checkbox = QCheckBox("Enable Debug Logging (for troubleshooting)")
-        self.debug_logging_checkbox.setChecked(self.config.get("debug_logging", False))
+        self.debug_logging_checkbox.setChecked(self.config.get("debug_logging", True))
         form_layout.addRow("Debug Logging:", self.debug_logging_checkbox)
         settings_group.setLayout(form_layout)
         settings_layout.addWidget(settings_group)
@@ -1009,6 +1025,25 @@ class MainWindow(QMainWindow):
         license_btn = QPushButton("View License")
         license_btn.clicked.connect(self.show_license)
         settings_layout.addWidget(license_btn)
+        
+        # Utility buttons group
+        utils_group = QGroupBox("Diagnostic Tools")
+        utils_layout = QVBoxLayout()
+        
+        # Enable FO4 debug logging button
+        fo4_debug_btn = QPushButton("Enable Fallout 4 Debug Logging")
+        fo4_debug_btn.clicked.connect(self.enable_fo4_debug_logging)
+        fo4_debug_btn.setToolTip("Enables Papyrus script logging and additional debug output in Fallout 4")
+        utils_layout.addWidget(fo4_debug_btn)
+        
+        # Bundle logs button
+        bundle_logs_btn = QPushButton("Bundle All Logs to ZIP")
+        bundle_logs_btn.clicked.connect(self.bundle_logs_to_zip)
+        bundle_logs_btn.setToolTip("Creates a zip file containing ba2-manager.log, MO2 logs, and FO4 logs")
+        utils_layout.addWidget(bundle_logs_btn)
+        
+        utils_group.setLayout(utils_layout)
+        settings_layout.addWidget(utils_group)
         
         settings_layout.addStretch()
         settings_widget.setLayout(settings_layout)
@@ -1111,7 +1146,8 @@ class MainWindow(QMainWindow):
         - Column 0: Mod Name (display only)
         - Column 1: Main BA2 (checkbox if mod has main BA2, empty otherwise)
         - Column 2: Texture BA2 (checkbox if mod has texture BA2, empty otherwise)
-        - Column 3: Nexus Link (clickable link if available)
+        - Column 3: Merge (checkbox - select mods to merge together)
+        - Column 4: Nexus Link (clickable link if available)
         
         Checkbox states:
         - Unchecked (empty): Not extracted / BA2 is present
@@ -1155,12 +1191,19 @@ class MainWindow(QMainWindow):
                     texture_widget.set_extracted(mod.texture_extracted)
                     self.mod_list.setCellWidget(i, 2, texture_widget)
                 
-                # === COLUMN 3: NEXUS LINK ===
+                # === COLUMN 3: MERGE CHECKBOX ===
+                # Always show merge checkbox for mods with BA2s
+                if mod.has_main_ba2 or mod.has_texture_ba2:
+                    merge_widget = CenteredCheckBox()
+                    merge_widget.set_extracted(False)  # Start unchecked
+                    self.mod_list.setCellWidget(i, 3, merge_widget)
+                
+                # === COLUMN 4: NEXUS LINK ===
                 if mod.nexus_url:
                     link_label = QLabel(f'<a href="{mod.nexus_url}">Nexus Page</a>')
                     link_label.setOpenExternalLinks(True)
                     link_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                    self.mod_list.setCellWidget(i, 3, link_label)
+                    self.mod_list.setCellWidget(i, 4, link_label)
             
             # === UPDATE STATUS ===
             if not mods:
@@ -1684,6 +1727,183 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Error saving settings: {str(e)}")
     
+    def enable_fo4_debug_logging(self):
+        """Enable Fallout 4 debug logging by modifying Fallout4Custom.ini"""
+        try:
+            # Get Fallout 4 Documents folder
+            documents = Path.home() / "Documents" / "My Games" / "Fallout4"
+            if not documents.exists():
+                QMessageBox.warning(
+                    self,
+                    "FO4 Folder Not Found",
+                    f"Fallout 4 documents folder not found at:\n{documents}\n\nPlease launch Fallout 4 at least once to create this folder."
+                )
+                return
+            
+            custom_ini = documents / "Fallout4Custom.ini"
+            
+            # Read existing content or create new
+            if custom_ini.exists():
+                with open(custom_ini, 'r') as f:
+                    content = f.read()
+            else:
+                content = ""
+            
+            # Settings to add/update
+            settings_to_add = {
+                "[Papyrus]": [
+                    "bEnableLogging=1",
+                    "bEnableTrace=1",
+                    "bLoadDebugInformation=1"
+                ],
+                "[General]": [
+                    "sStartingConsoleCommand="
+                ],
+                "[Archive]": [
+                    "bInvalidateOlderFiles=1",
+                    "sResourceDataDirsFinal="
+                ]
+            }
+            
+            # Process each section
+            for section, settings in settings_to_add.items():
+                if section not in content:
+                    # Add new section
+                    content += f"\n{section}\n"
+                    for setting in settings:
+                        content += f"{setting}\n"
+                else:
+                    # Update existing section
+                    for setting in settings:
+                        key = setting.split('=')[0]
+                        if key not in content:
+                            # Find section and add setting
+                            section_pos = content.find(section)
+                            next_section = content.find("\n[", section_pos + 1)
+                            if next_section == -1:
+                                next_section = len(content)
+                            insert_pos = next_section
+                            content = content[:insert_pos] + f"{setting}\n" + content[insert_pos:]
+            
+            # Write updated content
+            with open(custom_ini, 'w') as f:
+                f.write(content)
+            
+            # Create Logs directory if it doesn't exist
+            logs_dir = documents / "Logs" / "Script"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            
+            QMessageBox.information(
+                self,
+                "Debug Logging Enabled",
+                f"Fallout 4 debug logging has been enabled!\n\n"
+                f"Modified: {custom_ini}\n\n"
+                f"Logs will be saved to:\n{logs_dir}\n\n"
+                f"Note: You must restart Fallout 4 for changes to take effect."
+            )
+            self.logger.info(f"Enabled FO4 debug logging in {custom_ini}")
+            
+        except Exception as e:
+            self.logger.error(f"Error enabling FO4 debug logging: {e}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to enable Fallout 4 debug logging:\n\n{str(e)}"
+            )
+    
+    def bundle_logs_to_zip(self):
+        """Bundle all relevant logs into a zip file in the MO2 folder"""
+        try:
+            mo2_mods_dir = self.config.get("mo2_mods_dir", "")
+            if not mo2_mods_dir or not os.path.exists(mo2_mods_dir):
+                QMessageBox.warning(
+                    self,
+                    "MO2 Not Configured",
+                    "Please configure Mod Organizer 2 path in Settings first."
+                )
+                return
+            
+            # Determine MO2 root (parent of mods folder)
+            mo2_root = Path(mo2_mods_dir).parent
+            
+            # Create timestamp for filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            zip_filename = mo2_root / f"BA2_Manager_Logs_{timestamp}.zip"
+            
+            files_added = []
+            
+            with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # 1. BA2 Manager log (current directory)
+                ba2_log = Path("ba2-manager.log")
+                if ba2_log.exists():
+                    zipf.write(ba2_log, "ba2-manager.log")
+                    files_added.append("ba2-manager.log")
+                
+                # 2. MO2 logs
+                mo2_logs = mo2_root / "logs"
+                if mo2_logs.exists():
+                    for log_file in mo2_logs.glob("*.log"):
+                        zipf.write(log_file, f"MO2_logs/{log_file.name}")
+                        files_added.append(f"MO2: {log_file.name}")
+                    for log_file in mo2_logs.glob("*.txt"):
+                        zipf.write(log_file, f"MO2_logs/{log_file.name}")
+                        files_added.append(f"MO2: {log_file.name}")
+                
+                # 3. Fallout 4 logs
+                fo4_docs = Path.home() / "Documents" / "My Games" / "Fallout4"
+                if fo4_docs.exists():
+                    # Papyrus logs
+                    papyrus_logs = fo4_docs / "Logs" / "Script"
+                    if papyrus_logs.exists():
+                        for log_file in papyrus_logs.glob("*.log"):
+                            zipf.write(log_file, f"FO4_Papyrus/{log_file.name}")
+                            files_added.append(f"FO4 Papyrus: {log_file.name}")
+                    
+                    # F4SE logs
+                    f4se_logs = fo4_docs / "F4SE"
+                    if f4se_logs.exists():
+                        for log_file in f4se_logs.glob("*.log"):
+                            zipf.write(log_file, f"F4SE_logs/{log_file.name}")
+                            files_added.append(f"F4SE: {log_file.name}")
+                    
+                    # Crash logs
+                    crash_logs = fo4_docs / "CrashLogs"
+                    if crash_logs.exists():
+                        for log_file in crash_logs.glob("*.log"):
+                            zipf.write(log_file, f"Crash_logs/{log_file.name}")
+                            files_added.append(f"Crash: {log_file.name}")
+            
+            if not files_added:
+                QMessageBox.warning(
+                    self,
+                    "No Logs Found",
+                    "No log files were found to bundle."
+                )
+                zip_filename.unlink()  # Delete empty zip
+                return
+            
+            # Show success message
+            files_list = "\n".join([f"  • {f}" for f in files_added[:10]])
+            if len(files_added) > 10:
+                files_list += f"\n  ... and {len(files_added) - 10} more"
+            
+            QMessageBox.information(
+                self,
+                "Logs Bundled",
+                f"Successfully bundled {len(files_added)} log files!\n\n"
+                f"Saved to:\n{zip_filename}\n\n"
+                f"Files included:\n{files_list}"
+            )
+            self.logger.info(f"Bundled {len(files_added)} logs to {zip_filename}")
+            
+        except Exception as e:
+            self.logger.error(f"Error bundling logs: {e}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to bundle logs:\n\n{str(e)}"
+            )
+    
     def show_logs(self):
         """Show operation logs"""
         self.clear_content()
@@ -1806,9 +2026,455 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE."""
         
         # Create a larger dialog to prevent text wrapping
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("MIT License")
-        msg_box.setText(license_text)
-        msg_box.setMinimumWidth(600)
-        msg_box.exec()
-
+        dialog = QDialog(self)
+        dialog.setWindowTitle("MIT License")
+        dialog.setMinimumSize(700, 500)
+        
+        layout = QVBoxLayout()
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setText(license_text)
+        layout.addWidget(text_edit)
+        
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.close)
+        layout.addWidget(close_btn)
+        
+        dialog.setLayout(layout)
+        dialog.exec()
+    
+    def show_merge_ba2s(self):
+        """Display the Merge CC BA2s view"""
+        self.clear_content()
+        
+        # Create widget
+        merge_widget = QWidget()
+        merge_layout = QVBoxLayout()
+        merge_layout.setSpacing(15)
+        
+        # Title and description
+        title = QLabel("Merge Creation Club BA2 Archives")
+        title_font = QFont()
+        title_font.setPointSize(14)
+        title_font.setBold(True)
+        title.setFont(title_font)
+        merge_layout.addWidget(title)
+        
+        description = QLabel(
+            "Merge all Creation Club BA2 files into two unified archives to reduce your BA2 count.\n\n"
+            "This process will:\n"
+            "• Backup all original CC BA2 files\n"
+            "• Extract and combine them into CCMerged - Main.ba2 and CCMerged - Textures.ba2\n"
+            "• Create a dummy ESL file (CCMerged.esl) to load the merged archives\n"
+            "• Delete the original individual CC BA2 files\n\n"
+            "The merge can be reversed at any time using the Restore button."
+        )
+        description.setWordWrap(True)
+        merge_layout.addWidget(description)
+        
+        # Status group
+        status_group = QGroupBox("Current Status")
+        status_layout = QVBoxLayout()
+        
+        self.merge_status_label = QLabel("Checking status...")
+        status_layout.addWidget(self.merge_status_label)
+        
+        status_group.setLayout(status_layout)
+        merge_layout.addWidget(status_group)
+        
+        # Action buttons
+        button_layout = QHBoxLayout()
+        
+        self.merge_btn = QPushButton("Merge CC BA2s")
+        self.merge_btn.setMinimumHeight(50)
+        self.merge_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        self.merge_btn.clicked.connect(self.perform_merge)
+        button_layout.addWidget(self.merge_btn)
+        
+        self.restore_btn = QPushButton("Restore Original CC BA2s")
+        self.restore_btn.setMinimumHeight(50)
+        self.restore_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF9800;
+                color: white;
+                font-weight: bold;
+                font-size: 14px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #e68900;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        self.restore_btn.clicked.connect(self.perform_restore)
+        button_layout.addWidget(self.restore_btn)
+        
+        merge_layout.addLayout(button_layout)
+        
+        # Progress and output
+        self.merge_output = QTextEdit()
+        self.merge_output.setReadOnly(True)
+        self.merge_output.setMaximumHeight(200)
+        merge_layout.addWidget(self.merge_output)
+        
+        # Warning
+        warning = QLabel(
+            "⚠ WARNING: This is an advanced operation. Make sure you have backups of your Data folder.\n"
+            "The merge will modify your Fallout 4 Data directory and cannot be undone without the backup."
+        )
+        warning.setStyleSheet("color: #FF6B6B; font-weight: bold;")
+        warning.setWordWrap(True)
+        merge_layout.addWidget(warning)
+        
+        merge_layout.addStretch()
+        merge_widget.setLayout(merge_layout)
+        self.content_layout.addWidget(merge_widget)
+        
+        # Update status
+        self.update_merge_status()
+    
+    def update_merge_status(self):
+        """Update the merge status display"""
+        fo4_path = self.config.get("fo4_path", "")
+        if not fo4_path or not self.ba2_handler:
+            self.merge_status_label.setText("❌ Fallout 4 path not configured")
+            self.merge_btn.setEnabled(False)
+            self.restore_btn.setEnabled(False)
+            return
+        
+        status = self.ba2_handler.get_cc_merge_status(fo4_path)
+        
+        if "error" in status:
+            self.merge_status_label.setText(f"❌ Error: {status['error']}")
+            self.merge_btn.setEnabled(False)
+            self.restore_btn.setEnabled(False)
+            return
+        
+        is_merged = status.get("is_merged", False)
+        cc_count = status.get("individual_cc_count", 0)
+        merged_files = status.get("merged_files", [])
+        backups = status.get("available_backups", [])
+        
+        if is_merged:
+            status_text = f"✓ CC BA2s are currently MERGED\n\n"
+            status_text += f"Merged files: {', '.join(merged_files)}\n\n"
+            status_text += f"Individual CC BA2s remaining: {cc_count}\n\n"
+            if backups:
+                status_text += f"Available backups: {len(backups)}\n"
+                for backup in backups:
+                    status_text += f"  • {backup['name']} ({backup['cc_count']} BA2s)\n"
+            
+            self.merge_status_label.setText(status_text)
+            self.merge_btn.setEnabled(False)
+            self.restore_btn.setEnabled(len(backups) > 0)
+        else:
+            status_text = f"Individual CC BA2s: {cc_count}\n\n"
+            if cc_count > 0:
+                status_text += "CC BA2s are NOT merged. You can merge them to reduce your BA2 count."
+            else:
+                status_text += "No CC BA2s found to merge."
+            
+            self.merge_status_label.setText(status_text)
+            self.merge_btn.setEnabled(cc_count > 0)
+            self.restore_btn.setEnabled(False)
+    
+    def perform_merge(self):
+        """Perform the CC BA2 merge operation"""
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Confirm Merge",
+            "Are you sure you want to merge all Creation Club BA2 files?\n\n"
+            "This will:\n"
+            "• Backup your original CC BA2 files\n"
+            "• Create merged archives\n"
+            "• Delete the original BA2 files\n\n"
+            "You can restore them later if needed.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        # Disable UI during operation
+        self.setEnabled(False)
+        self.merge_output.clear()
+        self.merge_output.append("Starting merge operation...\n")
+        QApplication.processEvents()
+        
+        try:
+            fo4_path = self.config.get("fo4_path", "")
+            result = self.ba2_handler.merge_cc_ba2s(fo4_path)
+            
+            if result.get("success"):
+                self.merge_output.append("✓ Merge completed successfully!\n")
+                self.merge_output.append(f"\n📊 Statistics:")
+                self.merge_output.append(f"  • Original BA2 count: {result.get('original_count', 0)}")
+                
+                # Calculate total merged archives
+                texture_count = result.get('texture_archive_count', 1)
+                total_merged = 1 + texture_count  # 1 main + N textures
+                self.merge_output.append(f"  • Merged into: {total_merged} archives")
+                self.merge_output.append(f"  • BA2 reduction: {result.get('original_count', 0) - total_merged} fewer archives")
+                
+                if texture_count > 1:
+                    self.merge_output.append(f"\n⚠️ Texture archives split into {texture_count} files (4GB limit per archive)")
+                
+                if result.get("merged_main"):
+                    self.merge_output.append(f"\n✓ Created: {os.path.basename(result['merged_main'])}")
+                
+                # Handle multiple texture archives
+                merged_textures = result.get("merged_textures", [])
+                if isinstance(merged_textures, list):
+                    for tex_path in merged_textures:
+                        self.merge_output.append(f"✓ Created: {os.path.basename(tex_path)}")
+                elif merged_textures:  # Backward compatibility for single string
+                    self.merge_output.append(f"✓ Created: {os.path.basename(merged_textures)}")
+                
+                if result.get("dummy_esl"):
+                    self.merge_output.append(f"✓ Created: {os.path.basename(result['dummy_esl'])}")
+                
+                self.merge_output.append(f"\n📁 Backup saved to:")
+                self.merge_output.append(f"  {result.get('backup_path', 'N/A')}")
+                self.merge_output.append(f"\n🗑️ Removed {result.get('original_count', 0)} original CC BA2 files")
+                
+                self.merge_output.append(f"\n💡 Note: Duplicate files across BA2s were automatically deduplicated.")
+                self.merge_output.append(f"   The merged archives contain only unique files.")
+                
+                QMessageBox.information(
+                    self,
+                    "Merge Complete",
+                    f"Successfully merged {result.get('original_count', 0)} CC BA2 files into {total_merged} archives!"
+                )
+                
+                # Update status
+                self.update_merge_status()
+                # Refresh BA2 count
+                self.refresh_ba2_count()
+            else:
+                error = result.get("error", "Unknown error")
+                self.merge_output.append(f"\n❌ Merge failed: {error}")
+                QMessageBox.critical(
+                    self,
+                    "Merge Failed",
+                    f"Failed to merge CC BA2 files:\n\n{error}"
+                )
+        except Exception as e:
+            self.merge_output.append(f"\n❌ Error: {str(e)}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"An error occurred during merge:\n\n{str(e)}"
+            )
+        finally:
+            self.setEnabled(True)
+    
+    def perform_restore(self):
+        """Restore original CC BA2 files from backup"""
+        fo4_path = self.config.get("fo4_path", "")
+        status = self.ba2_handler.get_cc_merge_status(fo4_path)
+        backups = status.get("available_backups", [])
+        
+        if not backups:
+            QMessageBox.warning(self, "No Backup", "No backup found to restore from.")
+            return
+        
+        # Use the most recent backup (first in list)
+        backup_path = backups[0]["path"]
+        backup_count = backups[0]["cc_count"]
+        
+        # Confirm with user
+        reply = QMessageBox.question(
+            self,
+            "Confirm Restore",
+            f"Restore {backup_count} original CC BA2 files?\n\n"
+            "This will:\n"
+            "• Remove the merged archives\n"
+            "• Restore all individual CC BA2 files\n"
+            "• Delete the backup folder\n\n"
+            "This action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        # Disable UI during operation
+        self.setEnabled(False)
+        self.merge_output.clear()
+        self.merge_output.append("Starting restore operation...\n")
+        QApplication.processEvents()
+        
+        try:
+            result = self.ba2_handler.restore_cc_ba2s(backup_path, fo4_path)
+            
+            if result.get("success"):
+                self.merge_output.append("✓ Restore completed successfully!\n")
+                self.merge_output.append(f"\nRestored {result.get('restored_count', 0)} CC BA2 files")
+                
+                removed = result.get("removed_merged", [])
+                if removed:
+                    self.merge_output.append(f"\n✓ Removed merged files:")
+                    for filename in removed:
+                        self.merge_output.append(f"  • {filename}")
+                
+                self.merge_output.append(f"\n✓ Deleted backup folder")
+                
+                QMessageBox.information(
+                    self,
+                    "Restore Complete",
+                    f"Successfully restored {result.get('restored_count', 0)} original CC BA2 files!"
+                )
+                
+                # Update status
+                self.update_merge_status()
+                # Refresh BA2 count
+                self.refresh_ba2_count()
+            else:
+                error = result.get("error", "Unknown error")
+                self.merge_output.append(f"\n❌ Restore failed: {error}")
+                QMessageBox.critical(
+                    self,
+                    "Restore Failed",
+                    f"Failed to restore CC BA2 files:\n\n{error}"
+                )
+        except Exception as e:
+            self.merge_output.append(f"\n❌ Error: {str(e)}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"An error occurred during restore:\n\n{str(e)}"
+            )
+        finally:
+            self.setEnabled(True)
+    
+    def merge_selected_mods(self):
+        """Merge selected mods' BA2 files into unified archives"""
+        from PyQt6.QtWidgets import QInputDialog
+        
+        # Get selected mods (those with merge checkbox checked)
+        selected_mods = []
+        for i in range(self.mod_list.rowCount()):
+            merge_widget = self.mod_list.cellWidget(i, 3)  # Column 3 is Merge checkbox
+            if merge_widget and merge_widget.isChecked():
+                mod_name_item = self.mod_list.item(i, 0)
+                if mod_name_item:
+                    mod_name = mod_name_item.data(Qt.ItemDataRole.UserRole)
+                    selected_mods.append(mod_name)
+        
+        if not selected_mods:
+            QMessageBox.warning(
+                self,
+                "No Mods Selected",
+                "Please select at least one mod to merge by checking the 'Merge' checkbox."
+            )
+            return
+        
+        # Prompt for ESL name
+        esl_name, ok = QInputDialog.getText(
+            self,
+            "Merge Mods",
+            f"Enter name for merged archives (without extension):\n\n"
+            f"Selected mods ({len(selected_mods)}):\n" + "\n".join(f"  • {m}" for m in selected_mods[:10]) +
+            (f"\n  ... and {len(selected_mods) - 10} more" if len(selected_mods) > 10 else ""),
+            text="CustomMerged"
+        )
+        
+        if not ok or not esl_name.strip():
+            return
+        
+        esl_name = esl_name.strip()
+        
+        # Confirm merge
+        reply = QMessageBox.question(
+            self,
+            "Confirm Merge",
+            f"Merge {len(selected_mods)} mod(s) into '{esl_name}'?\n\n"
+            f"This will:\n"
+            f"• Backup all original BA2 files\n"
+            f"• Combine them into unified archives\n"
+            f"• Create {esl_name}.esl plugin\n"
+            f"• Delete original BA2 files\n\n"
+            f"This process can be reversed later.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        # Disable UI during operation
+        self.setEnabled(False)
+        self.mod_status.clear()
+        self.mod_status.append("Starting merge operation...\n")
+        QApplication.processEvents()
+        
+        try:
+            fo4_path = self.config.get("fo4_path", "")
+            result = self.ba2_handler.merge_custom_ba2s(selected_mods, fo4_path, esl_name)
+            
+            if result.get("success"):
+                self.mod_status.append("✓ Merge completed successfully!\n")
+                self.mod_status.append(f"\n📊 Statistics:")
+                self.mod_status.append(f"  • Mods merged: {len(selected_mods)}")
+                
+                texture_count = result.get('texture_archive_count', 1)
+                total_merged = (1 if result.get('merged_main') else 0) + texture_count
+                self.mod_status.append(f"  • Archives created: {total_merged}")
+                
+                if result.get("merged_main"):
+                    self.mod_status.append(f"\n✓ Created: {os.path.basename(result['merged_main'])}")
+                
+                merged_textures = result.get("merged_textures", [])
+                if isinstance(merged_textures, list):
+                    for tex_path in merged_textures:
+                        self.mod_status.append(f"✓ Created: {os.path.basename(tex_path)}")
+                
+                if result.get("dummy_esl"):
+                    self.mod_status.append(f"✓ Created: {os.path.basename(result['dummy_esl'])}")
+                
+                self.mod_status.append(f"\n📁 Backup: {result.get('backup_path', 'N/A')}")
+                
+                QMessageBox.information(
+                    self,
+                    "Merge Complete",
+                    f"Successfully merged {len(selected_mods)} mod(s) into {total_merged} archive(s)!"
+                )
+                
+                # Refresh mod list
+                self.load_mod_list()
+                self.refresh_ba2_count()
+            else:
+                error = result.get("error", "Unknown error")
+                self.mod_status.append(f"\n❌ Merge failed: {error}")
+                QMessageBox.critical(
+                    self,
+                    "Merge Failed",
+                    f"Failed to merge mods:\n\n{error}"
+                )
+        except Exception as e:
+            self.mod_status.append(f"\n❌ Error: {str(e)}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"An error occurred during merge:\n\n{str(e)}"
+            )
+        finally:
+            self.setEnabled(True)

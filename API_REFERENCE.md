@@ -1,8 +1,8 @@
-# BA2 Manager Pro - API Reference v1.1.0
+# BA2 Manager Pro - API Reference v2.0.0
 
 ## BA2Handler Class
 
-Complete reference for the core BA2 operations handler. This class provides all BA2 archive operations, MO2 integration, Creation Club management, and load order protection.
+Complete reference for the core BA2 operations handler. This class provides all BA2 archive operations, MO2 integration, Creation Club management, load order protection, and BA2 merging capabilities.
 
 ### Initialization
 
@@ -594,9 +594,189 @@ for entry in logs[-10:]:  # Last 10 entries
     print(entry)
 ```
 
+## BA2 Merging (v2.0+)
+
+### `merge_cc_ba2s(fo4_path: str, output_name: str = "CCMerged") -> Dict[str, Any]`
+
+Merge all Creation Club BA2 files into two unified archives to dramatically reduce BA2 count.
+
+**Process:**
+1. Backs up all CC BA2 files to timestamped folder
+2. Extracts all CC BA2s (General and Texture separately)
+3. **Automatic deduplication**: Files with same paths overwrite (last loaded wins)
+4. Repacks into optimized archives:
+   - `<output_name> - Main.ba2` (Format: General)
+   - `<output_name> - Textures.ba2` or `Textures1.ba2`, `Textures2.ba2`, etc. (Format: DDS)
+   - **Automatic 4GB splitting**: If textures exceed ~3.8GB, they're split into multiple archives
+5. Creates dummy ESL file to load merged archives
+6. Deletes original individual CC BA2 files
+
+**Parameters:**
+- `fo4_path` (str): Path to Fallout 4 installation
+- `output_name` (str, optional): Base name for merged archives (default: "CCMerged")
+
+**Returns:**
+
+```python
+{
+    "success": True,
+    "merged_main": "C:\\FO4\\Data\\CCMerged - Main.ba2",
+    "merged_textures": [
+        "C:\\FO4\\Data\\CCMerged - Textures1.ba2",
+        "C:\\FO4\\Data\\CCMerged - Textures2.ba2"
+    ],
+    "texture_archive_count": 2,
+    "dummy_esl": "C:\\FO4\\Data\\CCMerged.esl",
+    "original_count": 338,
+    "backup_path": "C:\\MO2\\BA2_Manager_Backups\\CC_Merge_Backup\\20251124_140530"
+}
+```
+
+**Important Notes:**
+- Duplicate files across CC BA2s are automatically deduplicated
+- File overwrites follow alphabetical load order for CC content (sorted before extraction)
+- Space savings typically 5-40% due to compression optimization and deduplication
+- **Automatic 4GB limit**: Texture archives are automatically split to prevent memory issues
+- Each archive stays under 4GB to ensure compatibility with all systems
+- Operation can take 5-15 minutes depending on CC content installed
+
+**Example:**
+
+```python
+result = handler.merge_cc_ba2s("C:\\Fallout4")
+if result["success"]:
+    print(f"Merged {result['original_count']} BA2s into 2 archives!")
+    print(f"Backup: {result['backup_path']}")
+```
+
+### `restore_cc_ba2s(backup_path: str, fo4_path: str) -> Dict[str, Any]`
+
+Restore original individual CC BA2 files from backup and remove merged archives.
+
+**Parameters:**
+- `backup_path` (str): Path to backup folder (from merge operation)
+- `fo4_path` (str): Path to Fallout 4 installation
+
+**Returns:**
+
+```python
+{
+    "success": True,
+    "restored_count": 169,
+    "removed_merged": ["CCMerged - Main.ba2", "CCMerged - Textures.ba2", "CCMerged.esl"]
+}
+```
+
+**Example:**
+
+```python
+# Find most recent backup
+status = handler.get_cc_merge_status("C:\\Fallout4")
+if status["available_backups"]:
+    backup_path = status["available_backups"][0]["path"]
+    result = handler.restore_cc_ba2s(backup_path, "C:\\Fallout4")
+    print(f"Restored {result['restored_count']} original BA2s!")
+```
+
+### `get_cc_merge_status(fo4_path: str) -> Dict[str, Any]`
+
+Check current merge status and available backups.
+
+**Returns:**
+
+```python
+{
+    "is_merged": True,
+    "merged_files": ["CCMerged - Main.ba2", "CCMerged - Textures.ba2", "CCMerged.esl"],
+    "individual_cc_count": 0,
+    "available_backups": [
+        {
+            "path": "C:\\MO2\\BA2_Manager_Backups\\CC_Merge_Backup\\20251124_140530",
+            "name": "20251124_140530",
+            "cc_count": 169
+        }
+    ]
+}
+```
+
+**Example:**
+
+```python
+status = handler.get_cc_merge_status("C:\\Fallout4")
+if status["is_merged"]:
+    print("CC BA2s are currently merged")
+    print(f"Merged files: {status['merged_files']}")
+else:
+    print(f"Found {status['individual_cc_count']} individual CC BA2s")
+```
+
+---
+
+### `merge_custom_ba2s(mod_names: list, fo4_path: str, output_name: str) -> Dict[str, Any]`
+
+Merge specified mods' BA2 files into unified archives. Works with any list of mod names.
+
+**Process:**
+1. Finds all BA2 files for specified mods
+2. Backs up all BA2 files to timestamped folder
+3. **Sorts by modlist.txt load order** to maintain proper overwrite priority
+4. Extracts all BA2s (Main and Texture separately) in load order
+5. **Automatic deduplication**: Files with same paths overwrite (respects modlist.txt order)
+6. Repacks into optimized archives with automatic 4GB splitting
+7. Creates dummy ESL file to load merged archives
+8. Deletes original individual BA2 files
+
+**Parameters:**
+- `mod_names` (list): List of mod names to merge (e.g., ["missweldy", "vchgs001fo4_ncrbeasthunter"])
+- `fo4_path` (str): Path to Fallout 4 installation
+- `output_name` (str): Base name for merged archives (e.g., "CustomMerged")
+
+**Returns:**
+
+```python
+{
+    "success": True,
+    "merged_main": "C:\\FO4\\Data\\CustomMerged - Main.ba2",
+    "merged_textures": [
+        "C:\\FO4\\Data\\CustomMerged - Textures1.ba2"
+    ],
+    "texture_archive_count": 1,
+    "dummy_esl": "C:\\FO4\\Data\\CustomMerged.esl",
+    "mod_count": 2,
+    "archive_count": 4,
+    "backup_path": "C:\\MO2\\BA2_Manager_Backups\\Custom_Merge_Backup\\CustomMerged_20251124_153042"
+}
+```
+
+**Important Notes:**
+- **Respects modlist.txt load order**: Mods loaded later overwrite earlier mods (same as game behavior)
+- Duplicate files across different mods are automatically deduplicated based on load order
+- Automatic 4GB splitting for large texture archives
+- Each archive stays under 4GB to ensure compatibility
+- Space savings vary based on content overlap
+- Operation time depends on number and size of BA2s being merged
+
+**Example:**
+
+```python
+# Merge two armor mods
+result = handler.merge_custom_ba2s(
+    mod_names=["missweldy", "vchgs001fo4_ncrbeasthunter"],
+    fo4_path="C:\\Fallout4",
+    output_name="ArmorPack"
+)
+
+if result["success"]:
+    print(f"Merged {result['mod_count']} mods ({result['archive_count']} BA2s)")
+    print(f"Created: {result['merged_main']}")
+    if result['texture_archive_count'] > 1:
+        print(f"Note: Textures split into {result['texture_archive_count']} archives")
+```
+```
+
 ## Version Information
 
-- **BA2 Manager Pro**: v1.1.0
+- **BA2 Manager Pro**: v2.0.0
 - **Python**: 3.12+
 - **PyQt6**: 6.10.0+
 - **PyInstaller**: 6.16.0+
