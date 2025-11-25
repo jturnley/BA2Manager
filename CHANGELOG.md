@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.3] - 2025-11-24
+
+### Fixed
+- **Critical**: Added 300-second timeout to subprocess calls to prevent indefinite hangs during BA2 extraction
+- **Critical**: Added None check before Path construction to prevent TypeError with undetected MO2 installations
+- **Critical**: Added file stat() exception handling to prevent crashes from file deletion race conditions
+- **Critical**: Added path containment validation before directory deletion to prevent accidental system directory removal
+- **Critical**: Added string length validation for ByteArray INI parsing to prevent IndexError
+- Improved BA2Handler initialization to properly handle empty strings vs None values
+
 ## [1.1.2] - 2025-11-24
 
 ### Fixed

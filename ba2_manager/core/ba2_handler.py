@@ -978,7 +978,11 @@ class BA2Handler:
                         # Categorize BA2 file
                         # Texture BA2s contain " - Texture" in the filename (e.g., " - Textures.ba2", " - Textures1.ba2")
                         is_texture = " - texture" in ba2_file.name.lower()
-                        file_size = ba2_file.stat().st_size
+                        try:
+                            file_size = ba2_file.stat().st_size
+                        except (FileNotFoundError, PermissionError) as e:
+                            self.logger.warning(f"Cannot access {ba2_file.name}: {e}")
+                            continue
                         ba2_mods[mod_name]['total_size'] += file_size
                         
                         if is_texture:
@@ -1555,7 +1559,7 @@ class BA2Handler:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 
-                result = subprocess.run(cmd, capture_output=True, startupinfo=startupinfo)
+                result = subprocess.run(cmd, capture_output=True, startupinfo=startupinfo, timeout=300)
                 
                 if result.returncode == 0:
                     extracted_ba2s.append(ba2_file)
@@ -1736,7 +1740,7 @@ class BA2Handler:
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 
-                result = subprocess.run(cmd, capture_output=True, startupinfo=startupinfo)
+                result = subprocess.run(cmd, capture_output=True, startupinfo=startupinfo, timeout=300)
                 
                 if result.returncode != 0:
                     self.logger.error(f"Failed to extract {ba2_file.name}: {result.stderr.decode()}")

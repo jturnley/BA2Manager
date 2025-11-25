@@ -200,8 +200,11 @@ class MainWindow(QMainWindow):
                 detected = None
 
                 # 1) Look inside the MO2 root (portable installs often bundle Archive2 here)
-                mo2_candidate = Path(mo2_detection_root) / "Archive2.exe"
-                if mo2_candidate.exists():
+                if mo2_detection_root:
+                    mo2_candidate = Path(mo2_detection_root) / "Archive2.exe"
+                else:
+                    mo2_candidate = None
+                if mo2_candidate and mo2_candidate.exists():
                     detected = mo2_candidate
                     self.logger.debug(f"Archive2.exe found in MO2 root: {mo2_candidate}")
                 else:
@@ -234,8 +237,8 @@ class MainWindow(QMainWindow):
         
         self.ba2_handler = BA2Handler(
             archive2_path=archive2_path if archive2_path else None,
-            mo2_dir=mo2_mods_dir,
-            backup_dir=backup_dir,
+            mo2_dir=mo2_mods_dir if mo2_mods_dir else None,
+            backup_dir=backup_dir if backup_dir else None,
             log_file=log_file
         )
         self.logger.debug("=== BA2 Manager Initialization Complete ===")
@@ -275,9 +278,13 @@ class MainWindow(QMainWindow):
                         
                         # Handle @ByteArray if present
                         if value.startswith("@ByteArray(") and value.endswith(")"):
-                            value = value[11:-1]
-                            # Handle escaped backslashes common in Qt settings
-                            value = value.replace("\\\\", "\\")
+                            if len(value) > 12:  # Minimum length check for "@ByteArray()"
+                                value = value[11:-1]
+                                # Handle escaped backslashes common in Qt settings
+                                value = value.replace("\\\\", "\\")
+                            else:
+                                self.logger.debug("Empty ByteArray value detected")
+                                return None
                         
                         path_val = Path(value)
                         if path_val.is_absolute():
@@ -356,7 +363,7 @@ class MainWindow(QMainWindow):
         exit_layout.addStretch()
         
         # Version label
-        version_label = QLabel("v1.1.2")
+        version_label = QLabel("v1.1.3")
         version_label.setStyleSheet("color: gray; margin-right: 10px;")
         exit_layout.addWidget(version_label)
         
