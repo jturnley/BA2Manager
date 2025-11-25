@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.4] - 2025-11-24
+
+### Added
+- **Profile Support**: Now automatically detects and uses the selected_profile from ModOrganizer.ini when multiple profiles exist
+- Reads modlist.txt and plugins.txt from the active MO2 profile instead of hardcoded "Default" profile
+- Falls back to "Default" profile if only one profile exists or if selected_profile cannot be determined
+
+### Improved
+- Better MO2 profile handling for users with multiple profile configurations
+- More intelligent profile path resolution based on MO2 installation structure
+
 ## [1.1.3] - 2025-11-24
 
 ### Fixed

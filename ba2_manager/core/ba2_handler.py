@@ -646,33 +646,85 @@ class BA2Handler:
             "limit_textures": 254
         }
     
+    def _get_selected_profile(self, mo2_root: Path) -> str:
+        """Read selected_profile from ModOrganizer.ini, returns 'Default' if not found or multiple profiles don't exist"""
+        try:
+            ini_path = mo2_root / "ModOrganizer.ini"
+            if not ini_path.exists():
+                self.logger.debug(f"ModOrganizer.ini not found at {ini_path}, using Default profile")
+                return "Default"
+            
+            # Check if multiple profiles exist
+            profiles_dir = mo2_root / "profiles"
+            if profiles_dir.exists():
+                profile_count = sum(1 for p in profiles_dir.iterdir() if p.is_dir())
+                if profile_count <= 1:
+                    self.logger.debug(f"Only one profile exists, using Default")
+                    return "Default"
+            
+            # Read selected_profile from ini
+            with open(ini_path, 'r', encoding='utf-8', errors='ignore') as f:
+                in_general = False
+                for line in f:
+                    line = line.strip()
+                    if line == "[General]":
+                        in_general = True
+                        continue
+                    elif line.startswith("[") and line.endswith("]"):
+                        in_general = False
+                        continue
+                    
+                    if in_general and line.startswith("selected_profile="):
+                        value = line.split("=", 1)[1].strip()
+                        if value.startswith("@ByteArray(") and value.endswith(")"):
+                            if len(value) > 12:
+                                profile_name = value[11:-1]
+                                self.logger.debug(f"Selected profile from ModOrganizer.ini: {profile_name}")
+                                return profile_name
+                        else:
+                            self.logger.debug(f"Selected profile from ModOrganizer.ini: {value}")
+                            return value
+        except Exception as e:
+            self.logger.warning(f"Error reading selected_profile from ModOrganizer.ini: {e}")
+        
+        self.logger.debug("Using Default profile as fallback")
+        return "Default"
+    
     def _get_modlist_path(self, mo2_root: Optional[Path] = None) -> Path:
-        """Determine path to modlist.txt"""
+        """Determine path to modlist.txt using selected profile if multiple profiles exist"""
         if mo2_root:
-            return mo2_root / "profiles" / "Default" / "modlist.txt"
+            profile_name = self._get_selected_profile(mo2_root)
+            return mo2_root / "profiles" / profile_name / "modlist.txt"
         
         # Try to infer mo2_root from mo2_dir
         mo2_path = Path(self.mo2_dir)
         if mo2_path.name == "mods":
             mo2_root = mo2_path.parent
-            return mo2_root / "profiles" / "Default" / "modlist.txt"
+            profile_name = self._get_selected_profile(mo2_root)
+            return mo2_root / "profiles" / profile_name / "modlist.txt"
         else:
             # mo2_dir is directly in MO2 root or we can't determine it
-            return mo2_path.parent / "profiles" / "Default" / "modlist.txt"
+            mo2_root = mo2_path.parent
+            profile_name = self._get_selected_profile(mo2_root)
+            return mo2_root / "profiles" / profile_name / "modlist.txt"
     
     def _get_plugins_path(self, mo2_root: Optional[Path] = None) -> Path:
-        """Determine path to plugins.txt"""
+        """Determine path to plugins.txt using selected profile if multiple profiles exist"""
         if mo2_root:
-            return mo2_root / "profiles" / "Default" / "plugins.txt"
+            profile_name = self._get_selected_profile(mo2_root)
+            return mo2_root / "profiles" / profile_name / "plugins.txt"
         
         # Try to infer mo2_root from mo2_dir
         mo2_path = Path(self.mo2_dir)
         if mo2_path.name == "mods":
             mo2_root = mo2_path.parent
-            return mo2_root / "profiles" / "Default" / "plugins.txt"
+            profile_name = self._get_selected_profile(mo2_root)
+            return mo2_root / "profiles" / profile_name / "plugins.txt"
         else:
             # mo2_dir is directly in MO2 root or we can't determine it
-            return mo2_path.parent / "profiles" / "Default" / "plugins.txt"
+            mo2_root = mo2_path.parent
+            profile_name = self._get_selected_profile(mo2_root)
+            return mo2_root / "profiles" / profile_name / "plugins.txt"
 
     def backup_modlist(self) -> bool:
         """Create a backup of modlist.txt on startup"""
