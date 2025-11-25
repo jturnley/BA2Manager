@@ -349,12 +349,12 @@ class BA2Handler:
         # Setup logging
         import sys
         self.logger = logging.getLogger("BA2Handler")
-        # Set log level based on config
-        debug_logging = False
+        # Set log level based on config (default to True for beta testing)
+        debug_logging = True
         try:
             from ba2_manager.config import Config
             config = Config()
-            debug_logging = config.get("debug_logging", False)
+            debug_logging = config.get("debug_logging", True)
         except Exception:
             pass
         self.logger.setLevel(logging.DEBUG if debug_logging else logging.INFO)
@@ -587,7 +587,13 @@ class BA2Handler:
             
             for ba2_file in mod_ba2s:
                 ba2_name = ba2_file.name.lower()
-                mod_folder_name = ba2_file.parent.name.lower()
+                
+                # Find the actual mod folder name (parent might be "textures" subfolder)
+                # Walk up until we find a directory that's a direct child of mods_path
+                mod_folder = ba2_file.parent
+                while mod_folder.parent != mods_path and mod_folder.parent != mod_folder:
+                    mod_folder = mod_folder.parent
+                mod_folder_name = mod_folder.name.lower()
                 
                 # Only count BA2s from active mods (if active_mods is not empty, check it; if empty, count all)
                 if active_mods_set and mod_folder_name not in active_mods_set:
@@ -777,6 +783,104 @@ class BA2Handler:
         except Exception as e:
             self.logger.error(f"Failed to verify modlist.txt: {e}")
             return True # Assume okay to avoid blocking user if check fails
+    
+    def _register_mo2_mod(self, mod_name: str, plugin_name: str) -> bool:
+        """Register a new mod in MO2's modlist.txt and plugins.txt
+        
+        Args:
+            mod_name: Name of the mod folder
+            plugin_name: Name of the plugin file (e.g., "CCMerged.esl")
+            
+        Returns:
+            True if registration succeeded, False otherwise
+        """
+        try:
+            # Add to modlist.txt (at the top, so it's Priority 0)
+            modlist_path = self._get_modlist_path()
+            if modlist_path.exists():
+                with open(modlist_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                
+                # Check if already in list
+                mod_entry = f"+{mod_name}\n"
+                if mod_entry not in lines:
+                    # Add at top (end of file since file is in reverse priority order)
+                    lines.append(mod_entry)
+                    
+                    with open(modlist_path, 'w', encoding='utf-8') as f:
+                        f.writelines(lines)
+                    self.logger.info(f"Added {mod_name} to modlist.txt")
+                else:
+                    self.logger.debug(f"{mod_name} already in modlist.txt")
+            
+            # Add to plugins.txt (active plugin)
+            plugins_path = self._get_plugins_path()
+            if plugins_path.exists():
+                with open(plugins_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                
+                # Check if already in list (either enabled or disabled)
+                plugin_entry = f"*{plugin_name}\n"
+                plugin_entry_enabled = f"{plugin_name}\n"
+                
+                if plugin_entry not in lines and plugin_entry_enabled not in lines:
+                    # Add as enabled plugin (no * prefix)
+                    lines.append(plugin_entry_enabled)
+                    
+                    with open(plugins_path, 'w', encoding='utf-8') as f:
+                        f.writelines(lines)
+                    self.logger.info(f"Added {plugin_name} to plugins.txt (enabled)")
+                else:
+                    self.logger.debug(f"{plugin_name} already in plugins.txt")
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to register mod in MO2 lists: {e}")
+            return False
+    
+    def _unregister_mo2_mod(self, mod_name: str, plugin_name: str) -> bool:
+        """Remove a mod from MO2's modlist.txt and plugins.txt
+        
+        Args:
+            mod_name: Name of the mod folder
+            plugin_name: Name of the plugin file (e.g., "CCMerged.esl")
+            
+        Returns:
+            True if unregistration succeeded, False otherwise
+        """
+        try:
+            # Remove from modlist.txt
+            modlist_path = self._get_modlist_path()
+            if modlist_path.exists():
+                with open(modlist_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                
+                # Remove all entries for this mod (both +ModName and -ModName)
+                mod_entries = [f"+{mod_name}\n", f"-{mod_name}\n"]
+                lines = [line for line in lines if line not in mod_entries]
+                
+                with open(modlist_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines)
+                self.logger.info(f"Removed {mod_name} from modlist.txt")
+            
+            # Remove from plugins.txt
+            plugins_path = self._get_plugins_path()
+            if plugins_path.exists():
+                with open(plugins_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                
+                # Remove both enabled and disabled entries
+                plugin_entries = [f"*{plugin_name}\n", f"{plugin_name}\n"]
+                lines = [line for line in lines if line not in plugin_entries]
+                
+                with open(plugins_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines)
+                self.logger.info(f"Removed {plugin_name} from plugins.txt")
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to unregister mod from MO2 lists: {e}")
+            return False
 
     def _get_disabled_plugin_mods(self, mo2_root: Optional[Path] = None) -> set:
         """Read plugins.txt to identify mods with disabled plugins.
@@ -1911,3 +2015,793 @@ class BA2Handler:
         except Exception as e:
             self.logger.error(f"Error restoring {ba2_type} BA2 for {mod_name}: {e}")
             return False
+    
+    def merge_cc_ba2s(self, fo4_path: str, output_name: str = "CCMerged") -> Dict[str, Any]:
+        """
+        Merge all Creation Club BA2 files into two merged archives.
+        
+        This reduces BA2 count by combining all CC archives into:
+        - <output_name> - Main.ba2 (all non-texture files)
+        - <output_name> - Textures.ba2 (all texture files)
+        
+        The merged files are placed in a new mod folder in MO2's mods directory
+        and automatically registered as an active mod.
+        
+        Args:
+            fo4_path: Path to Fallout 4 installation
+            output_name: Base name for merged archives (default: "CCMerged")
+            
+        Returns:
+            Dict with:
+                - success: bool
+                - merged_main: path to merged main BA2 (if created)
+                - merged_textures: path to merged texture BA2 (if created)
+                - original_count: number of CC BA2s merged
+                - backup_path: path to backup folder
+                - mod_folder: path to created MO2 mod folder
+                - error: error message (if failed)
+        """
+        if not self.archive2_path or not Path(self.archive2_path).exists():
+            return {"success": False, "error": "Archive2.exe not found"}
+        
+        data_path = Path(fo4_path) / "Data"
+        if not data_path.exists():
+            return {"success": False, "error": "Fallout 4 Data folder not found"}
+        
+        # Create mod folder in MO2 mods directory
+        mods_path = Path(self.mo2_dir)
+        mod_folder = mods_path / output_name
+        if mod_folder.exists():
+            self.logger.warning(f"Mod folder {output_name} already exists, removing it")
+            shutil.rmtree(mod_folder)
+        mod_folder.mkdir(parents=True, exist_ok=True)
+        self.logger.info(f"Created MO2 mod folder: {mod_folder}")
+        
+        # Create backup directory for original CC BA2s
+        backup_root = Path(self.backup_dir) / "CC_Merge_Backup"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = backup_root / timestamp
+        backup_path.mkdir(parents=True, exist_ok=True)
+        
+        # Create temp working directory
+        temp_path = Path(self.backup_dir) / "CC_Merge_Temp"
+        if temp_path.exists():
+            shutil.rmtree(temp_path)
+        temp_path.mkdir(parents=True, exist_ok=True)
+        
+        general_path = temp_path / "General"
+        textures_path = temp_path / "Textures"
+        general_path.mkdir(exist_ok=True)
+        textures_path.mkdir(exist_ok=True)
+        
+        try:
+            self.logger.info("Starting CC BA2 merge process...")
+            self.logger.info("="*60)
+            
+            # 1. Find all CC BA2 files
+            cc_ba2_files = []
+            for ba2_file in data_path.glob("cc*.ba2"):
+                cc_ba2_files.append(ba2_file)
+            
+            if not cc_ba2_files:
+                return {"success": False, "error": "No CC BA2 files found to merge"}
+            
+            # Sort CC BA2s by load order (alphabetical for CC content)
+            # CC mods don't appear in modlist.txt, so alphabetical order is correct
+            cc_ba2_files.sort(key=lambda x: x.name.lower())
+            
+            self.logger.info(f"Found {len(cc_ba2_files)} CC BA2 files to merge (sorted by load order)")
+            
+            # DEBUG: Log pre-merge statistics
+            if self.logger.level <= 10:  # DEBUG level
+                total_original_size = sum(f.stat().st_size for f in cc_ba2_files)
+                self.logger.debug(f"Total original size: {total_original_size / (1024**2):.2f} MB")
+                self.logger.debug("First 10 BA2s by load order:")
+                for i, ba2 in enumerate(cc_ba2_files[:10], 1):
+                    size_mb = ba2.stat().st_size / (1024**2)
+                    self.logger.debug(f"  {i}. {ba2.name} ({size_mb:.2f} MB)")
+                if len(cc_ba2_files) > 10:
+                    self.logger.debug(f"  ... and {len(cc_ba2_files) - 10} more")
+            
+            # 2. Backup original BA2 files
+            for ba2_file in cc_ba2_files:
+                shutil.copy2(ba2_file, backup_path / ba2_file.name)
+            self.logger.info(f"Backed up {len(cc_ba2_files)} CC BA2 files to {backup_path}")
+            
+            # 3. Extract all CC BA2s to temp folders (separated by type)
+            # Files with same paths will overwrite - last one wins (load order priority)
+            # CC BA2s are already sorted by load order (alphabetical)
+            general_ba2s = []
+            texture_ba2s = []
+            
+            # Track file overwrites for diagnostics
+            overwrite_tracker = {}  # path -> list of BA2 names that provided it
+            
+            for ba2_idx, ba2_file in enumerate(cc_ba2_files, 1):
+                ba2_name = ba2_file.name.lower()
+                # Check for both singular and plural texture naming
+                is_texture = " - texture" in ba2_name or " - textures" in ba2_name
+                
+                if is_texture:
+                    texture_ba2s.append(ba2_file)
+                    # Extract directly to textures_path - files will overwrite if duplicate
+                    extract_to = textures_path
+                else:
+                    general_ba2s.append(ba2_file)
+                    # Extract directly to general_path - files will overwrite if duplicate
+                    extract_to = general_path
+                
+                # Count files before extraction (for overwrite detection)
+                files_before = set(str(f.relative_to(extract_to)) for f in extract_to.rglob("*") if f.is_file())
+                
+                # Extract BA2 (files merge/overwrite at same level)
+                self.logger.info(f"[{ba2_idx}/{len(cc_ba2_files)}] Extracting {ba2_file.name} to {extract_to.name}/...")
+                
+                import time
+                extract_start = time.time()
+                result = subprocess.run(
+                    [self.archive2_path, str(ba2_file), f"-e={extract_to}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                extract_time = time.time() - extract_start
+                
+                if result.returncode != 0:
+                    raise Exception(f"Failed to extract {ba2_file.name}: {result.stderr}")
+                
+                # Count files after extraction
+                files_after = set(str(f.relative_to(extract_to)) for f in extract_to.rglob("*") if f.is_file())
+                new_files = files_after - files_before
+                overwritten_files = files_before & files_after
+                
+                self.logger.debug(f"  Extracted {len(new_files)} new files, {len(overwritten_files)} overwrites in {extract_time:.1f}s")
+                
+                # Track which BA2s provide each file (for deduplication analysis)
+                if self.logger.level <= 10:  # DEBUG level
+                    for file_path in new_files:
+                        if file_path not in overwrite_tracker:
+                            overwrite_tracker[file_path] = []
+                        overwrite_tracker[file_path].append(ba2_file.name)
+                
+                # Log extraction output if verbose
+                if result.stdout:
+                    self.logger.debug(f"  Archive2 output: {result.stdout.strip()}")
+            
+            self.logger.info(f"Extracted {len(general_ba2s)} general and {len(texture_ba2s)} texture BA2s")
+            
+            # Count unique files after extraction (accounting for overwrites)
+            general_file_count = sum(1 for _ in general_path.rglob("*") if _.is_file())
+            texture_file_count = sum(1 for _ in textures_path.rglob("*") if _.is_file())
+            self.logger.info(f"Total unique files: {general_file_count} general, {texture_file_count} textures")
+            
+            # DEBUG: Deduplication analysis
+            if self.logger.level <= 10 and overwrite_tracker:
+                duplicates = {path: ba2s for path, ba2s in overwrite_tracker.items() if len(ba2s) > 1}
+                if duplicates:
+                    self.logger.debug(f"Deduplication: {len(duplicates)} files appeared in multiple BA2s")
+                    # Show most duplicated files
+                    top_dupes = sorted(duplicates.items(), key=lambda x: len(x[1]), reverse=True)[:5]
+                    self.logger.debug("Most overwritten files:")
+                    for path, ba2s in top_dupes:
+                        self.logger.debug(f"  {path}: in {len(ba2s)} BA2s (winner: {ba2s[-1]})")
+                else:
+                    self.logger.debug("No duplicate files detected - all files unique")
+            
+            # 4. Create merged archives
+            merged_main_path = None
+            merged_texture_paths = []
+            general_file_count = 0
+            texture_file_count = 0
+            original_main_size = 0
+            original_texture_size = 0
+            
+            # Calculate original sizes
+            for ba2_file in general_ba2s:
+                original_main_size += ba2_file.stat().st_size
+            for ba2_file in texture_ba2s:
+                original_texture_size += ba2_file.stat().st_size
+            
+            # Pack General BA2
+            if general_ba2s:
+                merged_main_path = mod_folder / f"{output_name} - Main.ba2"
+                self.logger.info(f"Creating merged main BA2: {merged_main_path.name}")
+                
+                # Count files and calculate uncompressed size
+                general_file_count = sum(1 for item in general_path.rglob("*") if item.is_file())
+                uncompressed_size = sum(item.stat().st_size for item in general_path.rglob("*") if item.is_file())
+                self.logger.info(f"Packing {general_file_count} files, {uncompressed_size / (1024**2):.2f} MB uncompressed")
+                
+                # Create source file list
+                source_list = temp_path / "general_files.txt"
+                with open(source_list, 'w') as f:
+                    for item in general_path.rglob("*"):
+                        if item.is_file():
+                            # Write relative path from general_path
+                            rel_path = item.relative_to(general_path)
+                            f.write(f"{rel_path}\n")
+                
+                import time
+                pack_start = time.time()
+                result = subprocess.run(
+                    [self.archive2_path, str(general_path), 
+                     f"-c={merged_main_path}", 
+                     "-f=General",
+                     f"-r={general_path}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=600
+                )
+                pack_time = time.time() - pack_start
+                
+                if result.returncode != 0:
+                    raise Exception(f"Failed to create merged main BA2: {result.stderr}")
+                
+                merged_size = merged_main_path.stat().st_size
+                compression_ratio = (1 - merged_size / uncompressed_size) * 100 if uncompressed_size > 0 else 0
+                self.logger.info(f"Created {merged_main_path.name} in {pack_time:.1f}s")
+                self.logger.info(f"  Final: {merged_size / 1024 / 1024:.1f} MB, {general_file_count} files")
+                self.logger.info(f"  Compression: {uncompressed_size / (1024**2):.1f} MB → {merged_size / 1024 / 1024:.1f} MB ({compression_ratio:.1f}%)")
+                self.logger.info(f"  Original {len(general_ba2s)} BA2s: {original_main_size / 1024 / 1024:.1f} MB")
+                self.logger.info(f"  Space saved: {(original_main_size - merged_size) / 1024 / 1024:.1f} MB ({((original_main_size - merged_size) / original_main_size * 100):.1f}%)")
+            
+            # Pack Textures BA2 (single file - no splitting)
+            if texture_ba2s:
+                texture_file_count = sum(1 for item in textures_path.rglob("*") if item.is_file())
+                uncompressed_size = sum(item.stat().st_size for item in textures_path.rglob("*") if item.is_file())
+                
+                # Create single texture archive
+                archive_name = f"{output_name} - Textures.ba2"
+                merged_textures_path = mod_folder / archive_name
+                
+                self.logger.info(f"Creating {archive_name} with {texture_file_count} files ({uncompressed_size / (1024**3):.2f}GB uncompressed)...")
+                
+                # Log sample of paths being packed for debugging
+                sample_files = list(textures_path.rglob("*"))[:min(3, texture_file_count)]
+                if sample_files:
+                    sample_paths = [f.relative_to(textures_path) for f in sample_files]
+                    self.logger.debug(f"  Sample paths in BA2 (should start with 'Textures\\'): {[str(p) for p in sample_paths]}")
+                    # Verify structure: paths should start with "Textures/" for proper game loading
+                    for p in sample_paths:
+                        if not str(p).lower().startswith("textures"):
+                            self.logger.warning(f"  WARNING: Path doesn't start with 'Textures\\': {p}")
+                
+                import time
+                pack_start = time.time()
+                result = subprocess.run(
+                    [self.archive2_path, str(textures_path), 
+                     f"-c={merged_textures_path}", 
+                     "-f=DDS",
+                     f"-r={textures_path}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=600
+                )
+                pack_time = time.time() - pack_start
+                
+                if result.returncode != 0:
+                    raise Exception(f"Failed to create {archive_name}: {result.stderr}")
+                
+                merged_size = merged_textures_path.stat().st_size
+                compression_ratio = (1 - merged_size / uncompressed_size) * 100 if uncompressed_size > 0 else 0
+                merged_texture_paths.append(merged_textures_path)
+                self.logger.info(f"  Created {archive_name}: {merged_size / 1024 / 1024:.1f} MB ({texture_file_count} files) in {pack_time:.1f}s")
+                self.logger.info(f"    Compression: {uncompressed_size / (1024**3):.2f} GB → {merged_size / 1024 / 1024:.1f} MB ({compression_ratio:.1f}%)")
+                
+                # Log total texture results
+                total_merged_texture_size = sum(p.stat().st_size for p in merged_texture_paths)
+                self.logger.info(f"Total texture archives: {len(merged_texture_paths)}, {total_merged_texture_size / 1024 / 1024:.1f} MB, {texture_file_count} files")
+                self.logger.info(f"  Original {len(texture_ba2s)} BA2s: {original_texture_size / 1024 / 1024:.1f} MB")
+                self.logger.info(f"  Space saved: {(original_texture_size - total_merged_texture_size) / 1024 / 1024:.1f} MB ({((original_texture_size - total_merged_texture_size) / original_texture_size * 100):.1f}%)")
+            
+            # 5. Delete original CC BA2 files
+            for ba2_file in cc_ba2_files:
+                ba2_file.unlink()
+            self.logger.info(f"Removed {len(cc_ba2_files)} original CC BA2 files")
+            
+            # 6. Create dummy ESL to load merged BA2s
+            dummy_esl = mod_folder / f"{output_name}.esl"
+            self._create_dummy_esl(dummy_esl)
+            self.logger.info(f"Created dummy ESL: {dummy_esl.name}")
+            
+            # 7. Register mod in MO2 mod and plugin lists
+            self._register_mo2_mod(output_name, dummy_esl.name)
+            
+            # 8. Clean up temp directory
+            shutil.rmtree(temp_path)
+            
+            # Summary statistics
+            self.logger.info("="*60)
+            self.logger.info("CC BA2 MERGE SUMMARY:")
+            self.logger.info(f"  Original: {len(cc_ba2_files)} CC BA2 files")
+            merged_count = 1 if merged_main_path else 0
+            merged_count += len(merged_texture_paths) if texture_ba2s else 0
+            self.logger.info(f"  Merged: {merged_count} BA2 file(s)")
+            self.logger.info(f"  Reduction: {len(cc_ba2_files)} → {merged_count} ({(1 - merged_count/len(cc_ba2_files))*100:.1f}% fewer files)")
+            
+            total_original = original_main_size + original_texture_size
+            total_merged = (merged_main_path.stat().st_size if merged_main_path else 0)
+            total_merged += sum(p.stat().st_size for p in merged_texture_paths) if merged_texture_paths else 0
+            self.logger.info(f"  Total space: {total_original / (1024**2):.1f} MB → {total_merged / (1024**2):.1f} MB")
+            self.logger.info(f"  Space saved: {(total_original - total_merged) / (1024**2):.1f} MB ({((total_original - total_merged)/total_original*100):.1f}%)")
+            self.logger.info(f"  Backup: {backup_path}")
+            self.logger.info(f"  Mod folder: {mod_folder}")
+            self.logger.info("="*60)
+            self.logger.info("CC BA2 merge completed successfully!")
+            
+            return {
+                "success": True,
+                "merged_main": str(merged_main_path) if merged_main_path else None,
+                "merged_textures": [str(p) for p in merged_texture_paths] if texture_ba2s else [],
+                "texture_archive_count": len(merged_texture_paths) if texture_ba2s else 0,
+                "original_count": len(cc_ba2_files),
+                "backup_path": str(backup_path),
+                "dummy_esl": str(dummy_esl),
+                "mod_folder": str(mod_folder)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error merging CC BA2s: {e}")
+            # Clean up temp directory on error
+            if temp_path.exists():
+                shutil.rmtree(temp_path)
+            return {"success": False, "error": str(e)}
+    
+    def merge_custom_ba2s(self, mod_names: list, fo4_path: str, output_name: str) -> Dict[str, Any]:
+        """
+        Merge specified mods' BA2 files into unified archives.
+        
+        Similar to merge_cc_ba2s but works with any list of mod names.
+        
+        Args:
+            mod_names: List of mod names to merge
+            fo4_path: Path to Fallout 4 installation
+            output_name: Base name for merged archives
+            
+        Returns:
+            Dict with success, merged paths, backup path, etc.
+        """
+        if not self.archive2_path or not Path(self.archive2_path).exists():
+            return {"success": False, "error": "Archive2.exe not found"}
+        
+        data_path = Path(fo4_path) / "Data"
+        if not data_path.exists():
+            return {"success": False, "error": "Fallout 4 Data folder not found"}
+        
+        # Get BA2 files for selected mods
+        all_ba2s = []
+        for mod_name in mod_names:
+            ba2_files = list(data_path.glob(f"{mod_name}*.ba2"))
+            if ba2_files:
+                all_ba2s.extend(ba2_files)
+        
+        if not all_ba2s:
+            return {"success": False, "error": "No BA2 files found for selected mods"}
+        
+        # Create backup directory
+        backup_root = Path(self.backup_dir) / "Custom_Merge_Backup"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = backup_root / f"{output_name}_{timestamp}"
+        backup_path.mkdir(parents=True, exist_ok=True)
+        
+        # Create temp working directory
+        temp_path = Path(self.backup_dir) / "Custom_Merge_Temp"
+        if temp_path.exists():
+            shutil.rmtree(temp_path)
+        temp_path.mkdir(parents=True, exist_ok=True)
+        
+        general_path = temp_path / "General"
+        textures_path = temp_path / "Textures"
+        general_path.mkdir(exist_ok=True)
+        textures_path.mkdir(exist_ok=True)
+        
+        try:
+            self.logger.info(f"Starting custom mod merge: {output_name}")
+            self.logger.info("="*60)
+            self.logger.info(f"Merging {len(all_ba2s)} BA2 files from {len(mod_names)} mods")
+            
+            # DEBUG: Log selected mods
+            if self.logger.level <= 10:
+                self.logger.debug("Selected mods:")
+                for i, mod in enumerate(mod_names, 1):
+                    mod_ba2s = [f for f in all_ba2s if f.stem.lower().startswith(mod.lower())]
+                    total_size = sum(f.stat().st_size for f in mod_ba2s)
+                    self.logger.debug(f"  {i}. {mod} ({len(mod_ba2s)} BA2s, {total_size / (1024**2):.2f} MB)")
+            
+            # Get load order from modlist.txt to ensure correct overwrite priority
+            active_mods = self._get_active_mods()
+            load_order = {mod.lower(): idx for idx, mod in enumerate(active_mods)}
+            
+            # Sort BA2s by load order (lower index = earlier load, will be overwritten by later)
+            def get_load_priority(ba2_file):
+                # Extract mod name from BA2 filename by removing BA2 suffix patterns
+                ba2_name = ba2_file.stem  # Get filename without .ba2 extension
+                # Remove common suffixes like " - Main", " - Textures", etc.
+                for suffix in [' - main', ' - textures', ' - texture', '-main', '-textures', '-texture']:
+                    if ba2_name.lower().endswith(suffix):
+                        ba2_name = ba2_name[:-len(suffix)]
+                        break
+                mod_name = ba2_name.lower()
+                # Return load order index, or high number if not in modlist
+                priority = load_order.get(mod_name, 999999)
+                self.logger.debug(f"BA2 {ba2_file.name} -> mod '{mod_name}' -> priority {priority}")
+                return priority
+            
+            all_ba2s.sort(key=get_load_priority)
+            self.logger.info(f"Sorted {len(all_ba2s)} BA2s by modlist.txt load order")
+            
+            # DEBUG: Show final load order
+            if self.logger.level <= 10:
+                self.logger.debug("Load order (first 10):")
+                for i, ba2 in enumerate(all_ba2s[:10], 1):
+                    size_mb = ba2.stat().st_size / (1024**2)
+                    self.logger.debug(f"  {i}. {ba2.name} ({size_mb:.2f} MB)")
+                if len(all_ba2s) > 10:
+                    self.logger.debug(f"  ... and {len(all_ba2s) - 10} more")
+            
+            # Backup original BA2 files
+            for ba2_file in all_ba2s:
+                shutil.copy2(ba2_file, backup_path / ba2_file.name)
+            self.logger.info(f"Backed up {len(all_ba2s)} BA2 files to {backup_path}")
+            
+            # Separate into main and texture archives (preserving load order)
+            main_ba2s = [f for f in all_ba2s if 'texture' not in f.name.lower()]
+            texture_ba2s = [f for f in all_ba2s if 'texture' in f.name.lower()]
+            
+            self.logger.info(f"Found {len(main_ba2s)} main BA2s and {len(texture_ba2s)} texture BA2s")
+            
+            # Extract all main BA2s (in load order - earlier mods extracted first, later overwrites)
+            original_main_size = 0
+            import time
+            for ba2_idx, ba2_file in enumerate(main_ba2s, 1):
+                self.logger.info(f"[{ba2_idx}/{len(main_ba2s)}] Extracting {ba2_file.name} (load order maintained)...")
+                original_main_size += ba2_file.stat().st_size
+                
+                files_before = sum(1 for _ in general_path.rglob("*") if _.is_file())
+                extract_start = time.time()
+                result = subprocess.run(
+                    [self.archive2_path, str(ba2_file), f"-e={general_path}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=300
+                )
+                extract_time = time.time() - extract_start
+                
+                if result.returncode != 0:
+                    raise Exception(f"Failed to extract {ba2_file.name}: {result.stderr}")
+                
+                files_after = sum(1 for _ in general_path.rglob("*") if _.is_file())
+                new_files = files_after - files_before
+                self.logger.debug(f"  Extracted {new_files} files in {extract_time:.1f}s (total now: {files_after})")
+            
+            # Extract all texture BA2s
+            original_texture_size = 0
+            for ba2_idx, ba2_file in enumerate(texture_ba2s, 1):
+                self.logger.info(f"[{ba2_idx}/{len(texture_ba2s)}] Extracting {ba2_file.name}...")
+                original_texture_size += ba2_file.stat().st_size
+                
+                files_before = sum(1 for _ in textures_path.rglob("*") if _.is_file())
+                extract_start = time.time()
+                result = subprocess.run(
+                    [self.archive2_path, str(ba2_file), f"-e={textures_path}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=600
+                )
+                extract_time = time.time() - extract_start
+                
+                if result.returncode != 0:
+                    raise Exception(f"Failed to extract {ba2_file.name}: {result.stderr}")
+                
+                files_after = sum(1 for _ in textures_path.rglob("*") if _.is_file())
+                new_files = files_after - files_before
+                self.logger.debug(f"  Extracted {new_files} files in {extract_time:.1f}s (total now: {files_after})")
+            
+            # Pack main BA2
+            merged_main_path = None
+            merged_texture_paths = []
+            if main_ba2s:
+                merged_main_path = data_path / f"{output_name} - Main.ba2"
+                file_count = sum(1 for _ in general_path.rglob("*") if _.is_file())
+                uncompressed_size = sum(f.stat().st_size for f in general_path.rglob("*") if f.is_file())
+                self.logger.info(f"Creating {merged_main_path.name} ({file_count} files, {uncompressed_size / (1024**2):.2f} MB uncompressed)...")
+                
+                import time
+                pack_start = time.time()
+                result = subprocess.run(
+                    [self.archive2_path, str(general_path), f"-c={merged_main_path}", "-f=General", f"-r={general_path}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=600
+                )
+                pack_time = time.time() - pack_start
+                
+                if result.returncode != 0:
+                    raise Exception(f"Failed to create {merged_main_path.name}: {result.stderr}")
+                
+                merged_size = merged_main_path.stat().st_size
+                compression_ratio = (1 - merged_size / uncompressed_size) * 100 if uncompressed_size > 0 else 0
+                self.logger.info(f"  Created in {pack_time:.1f}s: {merged_size / 1024 / 1024:.1f} MB ({compression_ratio:.1f}% compression)")
+            
+            # Pack texture BA2s (with 4GB split)
+            if texture_ba2s:
+                texture_file_count = sum(1 for item in textures_path.rglob("*") if item.is_file())
+                texture_files = [(item, item.stat().st_size) for item in textures_path.rglob("*") if item.is_file()]
+                texture_files.sort(key=lambda x: x[1], reverse=True)
+                
+                # Split at 7GB uncompressed (targets ~3.5GB compressed)
+                MAX_UNCOMPRESSED_SIZE = int(7.0 * 1024 * 1024 * 1024)
+                self.logger.info(f"Using {MAX_UNCOMPRESSED_SIZE / (1024**3):.1f}GB uncompressed threshold (targets ~3.5GB compressed)")
+                
+                archive_groups = []
+                current_group = []
+                current_size = 0
+                
+                for file_path, file_size in texture_files:
+                    if current_size + file_size > MAX_UNCOMPRESSED_SIZE and current_group:
+                        archive_groups.append(current_group)
+                        current_group = []
+                        current_size = 0
+                    current_group.append(file_path)
+                    current_size += file_size
+                
+                if current_group:
+                    archive_groups.append(current_group)
+                
+                total_uncompressed = sum(size for _, size in texture_files)
+                self.logger.info(f"Total uncompressed texture data: {total_uncompressed / (1024**3):.2f}GB")
+                self.logger.info(f"Splitting {texture_file_count} texture files into {len(archive_groups)} archives")
+                
+                import time
+                for idx, file_group in enumerate(archive_groups, 1):
+                    if len(archive_groups) == 1:
+                        archive_name = f"{output_name} - Textures.ba2"
+                    else:
+                        archive_name = f"{output_name} - Textures{idx}.ba2"
+                    
+                    merged_textures_path = data_path / archive_name
+                    group_uncompressed = sum(f.stat().st_size for f in file_group)
+                    self.logger.info(f"Creating {archive_name} with {len(file_group)} files ({group_uncompressed / (1024**3):.2f}GB uncompressed)...")
+                    
+                    split_temp = temp_path / f"textures_split{idx}"
+                    split_temp.mkdir(exist_ok=True)
+                    
+                    for file_path in file_group:
+                        rel_path = file_path.relative_to(textures_path)
+                        dest_path = split_temp / rel_path
+                        dest_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(file_path, dest_path)
+                    
+                    pack_start = time.time()
+                    result = subprocess.run(
+                        [self.archive2_path, str(split_temp), f"-c={merged_textures_path}", "-f=DDS", f"-r={split_temp}"],
+                        capture_output=True,
+                        text=True,
+                        timeout=600
+                    )
+                    pack_time = time.time() - pack_start
+                    
+                    if result.returncode != 0:
+                        raise Exception(f"Failed to create {archive_name}: {result.stderr}")
+                    
+                    merged_size = merged_textures_path.stat().st_size
+                    compression_ratio = (1 - merged_size / group_uncompressed) * 100 if group_uncompressed > 0 else 0
+                    merged_texture_paths.append(merged_textures_path)
+                    self.logger.info(f"  Created {archive_name} in {pack_time:.1f}s: {merged_size / 1024 / 1024:.1f} MB ({compression_ratio:.1f}% compression)")
+            
+            # Create dummy ESL
+            dummy_esl = data_path / f"{output_name}.esl"
+            self._create_dummy_esl(dummy_esl)
+            
+            # Delete original BA2 files
+            for ba2_file in all_ba2s:
+                ba2_file.unlink()
+            
+            # Clean up temp directory
+            shutil.rmtree(temp_path)
+            
+            # Summary statistics
+            self.logger.info("="*60)
+            self.logger.info(f"CUSTOM MERGE SUMMARY: {output_name}")
+            self.logger.info(f"  Source: {len(mod_names)} mods, {len(all_ba2s)} BA2 files")
+            merged_count = (1 if merged_main_path else 0) + len(merged_texture_paths)
+            self.logger.info(f"  Merged: {merged_count} BA2 file(s)")
+            self.logger.info(f"  Reduction: {len(all_ba2s)} → {merged_count} ({(1 - merged_count/len(all_ba2s))*100:.1f}% fewer files)")
+            
+            total_original = original_main_size + original_texture_size
+            total_merged = (merged_main_path.stat().st_size if merged_main_path else 0)
+            total_merged += sum(p.stat().st_size for p in merged_texture_paths)
+            self.logger.info(f"  Total space: {total_original / (1024**2):.1f} MB → {total_merged / (1024**2):.1f} MB")
+            self.logger.info(f"  Space saved: {(total_original - total_merged) / (1024**2):.1f} MB ({((total_original - total_merged)/total_original*100):.1f}%)")
+            self.logger.info(f"  Backup: {backup_path}")
+            self.logger.info("="*60)
+            self.logger.info(f"Custom merge completed: {output_name}")
+            
+            return {
+                "success": True,
+                "merged_main": str(merged_main_path) if merged_main_path else None,
+                "merged_textures": [str(p) for p in merged_texture_paths] if merged_texture_paths else [],
+                "texture_archive_count": len(merged_texture_paths) if merged_texture_paths else 0,
+                "original_count": len(all_ba2s),
+                "backup_path": str(backup_path),
+                "dummy_esl": str(dummy_esl)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error merging custom BA2s: {e}")
+            if temp_path.exists():
+                shutil.rmtree(temp_path)
+            return {"success": False, "error": str(e)}
+    
+    def restore_cc_ba2s(self, backup_path: str, fo4_path: str, mod_name: str = "CCMerged") -> Dict[str, Any]:
+        """
+        Restore individual CC BA2 files from backup and remove merged archives.
+        
+        Args:
+            backup_path: Path to backup folder containing original CC BA2s
+            fo4_path: Path to Fallout 4 installation
+            mod_name: Name of the merged mod folder to remove (default: "CCMerged")
+            
+        Returns:
+            Dict with:
+                - success: bool
+                - restored_count: number of BA2s restored
+                - removed_merged: list of removed merged files
+                - error: error message (if failed)
+        """
+        backup = Path(backup_path)
+        data_path = Path(fo4_path) / "Data"
+        
+        if not backup.exists():
+            return {"success": False, "error": f"Backup folder not found: {backup_path}"}
+        
+        if not data_path.exists():
+            return {"success": False, "error": "Fallout 4 Data folder not found"}
+        
+        try:
+            self.logger.info(f"Restoring CC BA2s from backup: {backup_path}")
+            
+            # 1. Find all BA2 files in backup
+            backup_ba2s = list(backup.glob("cc*.ba2"))
+            if not backup_ba2s:
+                return {"success": False, "error": "No CC BA2 files found in backup"}
+            
+            self.logger.info(f"Found {len(backup_ba2s)} CC BA2 files in backup")
+            
+            # 2. Remove merged mod folder from MO2 mods directory
+            mods_path = Path(self.mo2_dir)
+            mod_folder = mods_path / mod_name
+            removed_files = []
+            
+            if mod_folder.exists():
+                # List what's being removed
+                for item in mod_folder.iterdir():
+                    removed_files.append(item.name)
+                    self.logger.info(f"Removing merged file: {item.name}")
+                
+                shutil.rmtree(mod_folder)
+                self.logger.info(f"Removed merged mod folder: {mod_folder}")
+            
+            # 3. Unregister mod from MO2 lists
+            self._unregister_mo2_mod(mod_name, f"{mod_name}.esl")
+            
+            # 4. Restore original CC BA2 files
+            restored_count = 0
+            for backup_ba2 in backup_ba2s:
+                target_ba2 = data_path / backup_ba2.name
+                shutil.copy2(backup_ba2, target_ba2)
+                restored_count += 1
+            
+            self.logger.info(f"Restored {restored_count} CC BA2 files")
+            
+            # 5. Delete backup folder
+            shutil.rmtree(backup)
+            self.logger.info(f"Deleted backup folder: {backup_path}")
+            
+            self.logger.info("CC BA2 restoration completed successfully!")
+            
+            return {
+                "success": True,
+                "restored_count": restored_count,
+                "removed_merged": removed_files
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error restoring CC BA2s: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def get_cc_merge_status(self, fo4_path: str, mod_name: str = "CCMerged") -> Dict[str, Any]:
+        """
+        Check if CC BA2s are currently merged.
+        
+        Args:
+            fo4_path: Path to Fallout 4 installation
+            mod_name: Name of the merged mod folder (default: "CCMerged")
+            
+        Returns:
+            Dict with:
+                - is_merged: bool (True if merged archives exist)
+                - merged_files: list of merged BA2/ESL files
+                - individual_cc_count: number of individual cc*.ba2 files
+                - available_backups: list of available backup folders
+        """
+        data_path = Path(fo4_path) / "Data"
+        backup_root = Path(self.backup_dir) / "CC_Merge_Backup"
+        
+        if not data_path.exists():
+            return {"is_merged": False, "error": "Fallout 4 Data folder not found"}
+        
+        # Check for merged files in MO2 mod folder (new location)
+        mods_path = Path(self.mo2_dir)
+        mod_folder = mods_path / mod_name
+        merged_files = []
+        
+        if mod_folder.exists():
+            # Check for BA2 and ESL files in the mod folder
+            for pattern in ["*.ba2", "*.esl"]:
+                merged_files.extend([f.name for f in mod_folder.glob(pattern)])
+        
+        # OLD CODE (commented out - kept for reference in case we need fallback to Fallout4.ini method):
+        # Check for merged files in Data folder (old location)
+        # merged_files = []
+        # for pattern in ["*Merged*.ba2", "*Merged*.esl", "CCMerged*.ba2", "CCMerged*.esl"]:
+        #     merged_files.extend([f.name for f in data_path.glob(pattern)])
+        
+        is_merged = len(merged_files) > 0
+        
+        # Count individual CC BA2s in Data folder
+        cc_ba2_count = len(list(data_path.glob("cc*.ba2")))
+        
+        # Find available backups
+        available_backups = []
+        if backup_root.exists():
+            for backup_folder in backup_root.iterdir():
+                if backup_folder.is_dir():
+                    cc_count = len(list(backup_folder.glob("cc*.ba2")))
+                    available_backups.append({
+                        "path": str(backup_folder),
+                        "name": backup_folder.name,
+                        "cc_count": cc_count
+                    })
+        
+        return {
+            "is_merged": is_merged,
+            "merged_files": merged_files,
+            "individual_cc_count": cc_ba2_count,
+            "available_backups": available_backups
+        }
+    
+    def _create_dummy_esl(self, esl_path: Path) -> None:
+        """
+        Create a minimal dummy ESL file to load merged BA2 archives.
+        
+        This creates a proper ESL with TES4 header and required subrecords.
+        The structure matches Bethesda's minimal plugin format.
+        """
+        # Proper TES4 record structure for Fallout 4
+        esl_data = bytearray()
+        
+        # TES4 Record Header (24 bytes before subrecords)
+        esl_data.extend(b'TES4')              # Record type (4 bytes)
+        esl_data.extend(b'\x19\x00\x00\x00')  # Data size: 25 bytes (HEDR 18 + CNAM 7) (4 bytes)
+        esl_data.extend(b'\x00\x00\x00\x00')  # Flags (4 bytes) - could set ESL flag 0x200 here
+        esl_data.extend(b'\x00\x00\x00\x00')  # Form ID (4 bytes) 
+        esl_data.extend(b'\x00\x00\x00\x00')  # Timestamp (4 bytes)
+        esl_data.extend(b'\x00\x00\x00\x00')  # Version control (4 bytes)
+        
+        # HEDR subrecord (Header data) - 18 bytes total (4 type + 2 size + 12 data)
+        esl_data.extend(b'HEDR')              # Subrecord type (4 bytes)
+        esl_data.extend(b'\x0c\x00')          # Data size: 12 bytes (2 bytes)
+        esl_data.extend(b'\x3f\x99\x99\x9a')  # Version 1.2 as float (4 bytes)
+        esl_data.extend(b'\x00\x00\x00\x00')  # Number of records (4 bytes)
+        esl_data.extend(b'\x00\x00\x00\x00')  # Next object ID (4 bytes)
+        
+        # CNAM subrecord (Author) - 7 bytes total (4 type + 2 size + 1 data)
+        esl_data.extend(b'CNAM')              # Subrecord type (4 bytes)
+        esl_data.extend(b'\x01\x00')          # Data size: 1 byte (2 bytes)
+        esl_data.extend(b'\x00')              # Null-terminated empty string (1 byte)
+        
+        with open(esl_path, 'wb') as f:
+            f.write(esl_data)
+        
+        self.logger.info(f"Created dummy ESL: {esl_path.name} ({len(esl_data)} bytes)")
