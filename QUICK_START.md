@@ -1,4 +1,4 @@
-# Quick Start Guide - BA2 Manager Pro v1.1.3
+# Quick Start Guide - BA2 Manager Pro v1.1.4
 
 ## Running the Application
 
@@ -42,6 +42,7 @@ On first run, the app will attempt to auto-detect paths. If needed, manually con
 **Note**: BA2 Manager automatically:
 - Creates backups of `modlist.txt` and `plugins.txt` on startup
 - Detects custom mod directories from `ModOrganizer.ini`
+- Uses the selected MO2 profile when multiple profiles exist
 - Only counts active mods (enabled in modlist.txt and plugins.txt)
 
 ## Using the Application
