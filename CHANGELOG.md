@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2025-11-24
+
+### Fixed
+- Removed legacy dead code methods (`update_ba2_bar_style()` and `blink_bar()`) that referenced non-existent `ba2_progress` attribute
+- Removed unused blink timer initialization and references
+- Fixed potential AttributeError when legacy methods were inadvertently called
+
 ## [1.1.0] - 2025-11-24
 
 ### Added

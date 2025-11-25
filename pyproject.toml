@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ba2-manager"
-version = "1.1.0"
+version = "1.1.1"
 description = "BA2 Manager - Comprehensive BA2 file management application"
 readme = "README.md"
 requires-python = ">=3.12"
