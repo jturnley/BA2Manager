@@ -1,4 +1,4 @@
-# Quick Start Guide - BA2 Manager Pro v1.1.2
+# Quick Start Guide - BA2 Manager Pro v1.1.3
 
 ## Running the Application
 
