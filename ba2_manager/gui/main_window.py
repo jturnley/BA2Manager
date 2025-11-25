@@ -241,11 +241,6 @@ class MainWindow(QMainWindow):
         self.logger.debug("=== BA2 Manager Initialization Complete ===")
         self.current_view = None
         
-        # Blink timer for danger state
-        self.blink_timer = QTimer()
-        self.blink_timer.timeout.connect(self.blink_bar)
-        self.blink_state = False
-        
         self.init_ui()
         self.show_default_view()
     
@@ -361,7 +356,7 @@ class MainWindow(QMainWindow):
         exit_layout.addStretch()
         
         # Version label
-        version_label = QLabel("v1.1.0")
+        version_label = QLabel("v1.1.1")
         version_label.setStyleSheet("color: gray; margin-right: 10px;")
         exit_layout.addWidget(version_label)
         
@@ -524,10 +519,8 @@ class MainWindow(QMainWindow):
         return bar_widget
     
     def update_ba2_bar_style_main(self, value: int, limit: int):
-        """Update the main BA2 bar - green until max, then red blinking"""
+        """Update the main BA2 bar - green until max, then red"""
         if value > limit:
-            if not self.blink_timer.isActive():
-                self.blink_timer.start(500)
             self.ba2_main_progress.setValue(limit)
             self.ba2_main_value.setText(str(value))
             self.ba2_main_value.setStyleSheet("color: #FF0000; font-weight: bold;")
@@ -545,10 +538,6 @@ class MainWindow(QMainWindow):
             """)
             return
         
-        if self.blink_timer.isActive():
-            self.blink_timer.stop()
-            self.blink_state = False
-        
         self.ba2_main_progress.setStyleSheet("""
             QProgressBar {
                 border: 2px solid #444;
@@ -565,10 +554,8 @@ class MainWindow(QMainWindow):
         self.ba2_main_progress.setValue(value)
     
     def update_ba2_bar_style_texture(self, value: int, limit: int):
-        """Update the texture BA2 bar - green until max, then red blinking"""
+        """Update the texture BA2 bar - green until max, then red"""
         if value > limit:
-            if not self.blink_timer.isActive():
-                self.blink_timer.start(500)
             self.ba2_texture_progress.setValue(limit)
             self.ba2_texture_value.setText(str(value))
             self.ba2_texture_value.setStyleSheet("color: #FF0000; font-weight: bold;")
@@ -586,10 +573,6 @@ class MainWindow(QMainWindow):
             """)
             return
         
-        if self.blink_timer.isActive():
-            self.blink_timer.stop()
-            self.blink_state = False
-        
         self.ba2_texture_progress.setStyleSheet("""
             QProgressBar {
                 border: 2px solid #444;
@@ -604,97 +587,6 @@ class MainWindow(QMainWindow):
         self.ba2_texture_value.setText(str(value))
         self.ba2_texture_value.setStyleSheet("color: #4CAF50; font-weight: bold;")
         self.ba2_texture_progress.setValue(value)
-
-    def update_ba2_bar_style(self, value: int):
-        """Update the BA2 bar color based on value with smooth gradient"""
-        
-        # Handle blinking for danger state (> 500)
-        if value > 500:
-            if not self.blink_timer.isActive():
-                self.blink_timer.start(500) # Blink every 500ms
-            
-            # Ensure bar is full
-            self.ba2_progress.setValue(501)
-            
-            # Update status text immediately
-            self.ba2_value_label.setText(str(value))
-            self.ba2_status_label.setText("DANGER")
-            self.ba2_value_label.setStyleSheet("color: #FF0000; font-weight: bold;")
-            return
-
-        # Stop blinking if safe
-        if self.blink_timer.isActive():
-            self.blink_timer.stop()
-            self.blink_state = False
-        
-        # Calculate color based on value with smooth gradient
-        # Green (0, 255, 0) to Red (255, 0, 0)
-        
-        # Cap value at 500 for color calculation
-        calc_value = min(max(value, 0), 500)
-        
-        if calc_value <= 250:
-            # Green to Yellow
-            r = int(255 * (calc_value / 250))
-            g = 255
-            b = 0
-        else:
-            # Yellow to Red
-            r = 255
-            g = int(255 * ((500 - calc_value) / 250))
-            b = 0
-            
-        color = f"rgb({r}, {g}, {b})"
-        
-        self.ba2_progress.setStyleSheet(f"""
-            QProgressBar {{
-                border: 2px solid #444;
-                border-radius: 5px;
-                text-align: center;
-                background-color: #2b2b2b;
-                color: white;
-                font-weight: bold;
-            }}
-            QProgressBar::chunk {{
-                background-color: {color};
-                border-radius: 3px;
-            }}
-        """)
-        
-        # Determine status text and color
-        if value > 350:
-            status = "WARNING"
-            label_style = "color: #FFB74D; font-weight: bold;"
-        else:
-            status = "SAFE"
-            label_style = "color: #4CAF50; font-weight: bold;"
-            
-        self.ba2_value_label.setText(str(value))
-        self.ba2_status_label.setText(status)
-        self.ba2_value_label.setStyleSheet(label_style)
-        self.ba2_progress.setValue(value)
-
-    def blink_bar(self):
-        """Toggle bar color for blinking effect"""
-        self.blink_state = not self.blink_state
-        
-        # Toggle between Bright Red and Dark Red
-        color = "#FF0000" if self.blink_state else "#550000"
-        
-        self.ba2_progress.setStyleSheet(f"""
-            QProgressBar {{
-                border: 2px solid #444;
-                border-radius: 5px;
-                text-align: center;
-                background-color: #2b2b2b;
-                color: white;
-                font-weight: bold;
-            }}
-            QProgressBar::chunk {{
-                background-color: {color};
-                border-radius: 3px;
-            }}
-        """)
     
     def clear_content(self):
         """Clear the content area"""
