@@ -48,6 +48,11 @@ htmlcov/
 # PyInstaller
 *.manifest
 *.spec.lock
+
+# Release packages (binaries should not be in git)
+releases/
+CC_Packer/release/
+*.zip
 dist/
 build/
 
