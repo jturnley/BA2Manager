@@ -1,4 +1,4 @@
-# BA2 Manager v2.0.1
+# BA2 Manager v2.0.2
 
 A comprehensive Python application for managing Fallout 4 BA2 archive files through Mod Organizer 2.
 

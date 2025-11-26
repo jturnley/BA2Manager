@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.2] - 2025-11-26
+
+### Fixed
+- **ESL Localization**: Added proper localization data (INTV, SNAM subrecords) to generated ESL files
+  - Sound archive ESL files now properly recognized by Fallout 4
+  - Fixed "not localized to this game" error messages
+  - ESL structure now includes full TES4 header with all required subrecords
+
 ## [2.0.1] - 2025-11-26
 
 ### Fixed
