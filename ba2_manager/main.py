@@ -38,7 +38,7 @@ def main():
     
     # Set application metadata
     app.setApplicationName("BA2 Manager")
-    app.setApplicationVersion("0.1.0")
+    app.setApplicationVersion("2.0.0")
     
     # Create and show main window
     window = MainWindow()

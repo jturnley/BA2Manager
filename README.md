@@ -1,6 +1,6 @@
 # BA2 Manager v2.0.0
 
-A comprehensive Python application for managing Fallout 4 BA2 archive files through Mod Organizer 2. This project recreates and enhances the functionality of the PowerShell `manage_ba2_pro.ps1` script as a professional cross-platform GUI application.
+A comprehensive Python application for managing Fallout 4 BA2 archive files through Mod Organizer 2.
 
 ## Features
 
@@ -20,7 +20,8 @@ A comprehensive Python application for managing Fallout 4 BA2 archive files thro
 - **Comprehensive Logging**: Detailed operation logs with configurable debug mode
 - **Configuration Management**: Auto-detection and persistent storage of all paths
 
-### Advantages Over PowerShell Script
+### Key Advantages
+
 - **Cross-platform GUI**: Modern PyQt6 interface works on Windows, Linux, and macOS
 - **Safer Operations**: Atomic extractions, backup preservation, load order protection
 - **Better UX**: Single-selection tables, visual progress indicators, real-time feedback
@@ -50,7 +51,7 @@ For a simpler, focused tool to merge Creation Club archives, check out **[CC-Pac
 1. Download the latest release (`ba2-manager.exe`) from the Releases page.
 2. Place the executable anywhere (e.g., inside your MO2 folder).
 3. Run `ba2-manager.exe`.
-4. On first run, configure your paths in the **Settings** tab:
+4. On first run, configure your paths in the **Settings** view:
    - **MO2 Mods Directory**: Where your mods are installed.
    - **Archive2.exe Path**: Required for extraction (usually in `Fallout 4/Tools/Archive2`).
    - **Fallout 4 Path**: Your game installation folder.

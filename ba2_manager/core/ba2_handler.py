@@ -9,7 +9,7 @@ It provides the core functionality for:
    - Categorizes by type: Main, DLC, CC (Creation Club), Creation Store, Mods
    - Tracks vanilla replacements (mod BA2s replacing base game files)
    - Reads Fallout4.ccc to determine which CC content is active
-   - MATCHING LOGIC: Exactly replicates PowerShell script counting
+   - MATCHING LOGIC: Exactly replicates Fallout 4 BA2 counting requirements
 
 2. LISTING MOD BA2s
    - Returns all BA2 files found in MO2 mods directory
@@ -449,7 +449,7 @@ class BA2Handler:
         """
         Count BA2 files across all sources and categorize them.
         
-        THIS IS THE CORE COUNTING LOGIC - Matches PowerShell script exactly.
+        THIS IS THE CORE COUNTING LOGIC - Matches Fallout 4 BA2 counting requirements exactly.
         
         PROCESS:
         1. Read Fallout4.ccc to determine which CC plugins are ACTIVE
@@ -526,7 +526,7 @@ class BA2Handler:
                     ba2_name = ba2_file.name.lower()
                     self.vanilla_ba2_names.add(ba2_name)
                     
-                    # Categorize BA2 files exactly like PowerShell script
+                    # Categorize BA2 files exactly like Fallout 4 requirements
                     if ba2_name.startswith("cc"):
                         # For CC BA2s, only count if plugin is active in Fallout4.ccc
                         ba2_base = ba2_file.stem  # Remove extension

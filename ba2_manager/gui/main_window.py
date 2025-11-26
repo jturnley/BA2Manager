@@ -365,7 +365,7 @@ class MainWindow(QMainWindow):
         exit_layout.addStretch()
         
         # Version label
-        version_label = QLabel("v1.1.3")
+        version_label = QLabel("v2.0.0")
         version_label.setStyleSheet("color: gray; margin-right: 10px;")
         exit_layout.addWidget(version_label)
         

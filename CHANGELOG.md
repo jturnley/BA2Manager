@@ -5,36 +5,46 @@ All notable changes to this project will be documented in this file.
 ## [2.0.0] - 2025-11-25
 
 ### Added
-- **Conflict Detection System**: New comprehensive conflict analysis and resolution tools
-  - Multi-threaded conflict scanning with real-time progress tracking
-  - Detailed conflict reports showing all file overlaps between mods
-  - Smart conflict resolution with automatic BA2 extraction
-  - Conflict visualization with color-coded severity indicators
-  - Export conflict reports to JSON and HTML formats
-- **Advanced Filtering**: Enhanced mod filtering capabilities
-  - Filter by mod name, author, category, or tags
-  - Quick filters for common scenarios (conflicts, extracted mods, etc.)
-  - Save and load custom filter presets
-- **Batch Operations**: Improved bulk mod management
-  - Select multiple mods for simultaneous extraction/restoration
-  - Progress tracking for batch operations
-  - Intelligent error handling and recovery
-- **Enhanced UI**: Modern interface improvements
-  - Tabbed interface for better organization
-  - Resizable panels with saved layouts
-  - Dark mode support
-  - Customizable column visibility
-- **Performance Optimizations**: Faster operations across the board
-  - Parallel processing for BA2 operations
-  - Optimized file scanning algorithms
-  - Reduced memory footprint for large mod lists
-  - Improved startup time
+- **Complete GUI Application**: Full PyQt6-based graphical interface for BA2 management
+  - Modern, cross-platform interface for Windows, Linux, and macOS
+  - Real-time BA2 counting with visual progress bars
+  - Intuitive mod management with checkbox-based selection
+  - Integrated settings configuration
+
+- **Enhanced BA2 Operations**: Improved extraction and restoration workflows
+  - Individual Main and Texture BA2 handling per mod
+  - Automatic loose file cleanup on restoration
+  - Backup preservation and atomic operations
+  - Load order protection with automatic backups
+
+- **Creation Club Integration**: Seamless CC content management
+  - Real-time monitoring of Fallout4.ccc changes
+  - Enable/disable CC plugins with automatic BA2 counting updates
+  - CC BA2 merging capabilities
+
+- **Nexus Mod Integration**: Automatic Nexus page detection and linking
+  - Reads mod IDs from meta.ini files
+  - Clickable links to mod pages for easy access
+
+- **Comprehensive Configuration**: Auto-detection and persistent settings
+  - Automatic MO2 installation detection
+  - Custom mod directory support
+  - Multiple profile support
+  - Path validation and error handling
+
+- **Advanced Logging**: Detailed operation tracking
+  - Configurable debug logging
+  - Crash logging with stack traces
+  - Operation history and error reporting
+
 
 ### Changed
+
 - **CC-Packer Separation**: CC-Packer is now a standalone project at [github.com/jturnley/CC-Packer](https://github.com/jturnley/CC-Packer)
   - No longer included in BA2 Manager distribution
   - Maintained as separate tool with independent versioning
   - See CC_PACKER_SEPARATION.md for migration details
+
 - Default debug logging disabled for production release
 - Improved error messages with actionable suggestions
 - Enhanced configuration validation and migration

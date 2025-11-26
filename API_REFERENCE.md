@@ -41,22 +41,24 @@ Count all BA2 files with comprehensive breakdown. **Only counts active mods** (e
 
 ```python
 {
-    "main": {
-        "base_game": 10,
-        "creation_club": 8,
-        "creation_store": 5,
-        "mods": 42,
-        "vanilla_replacements": 3,
-        "total": 68
-    },
-    "texture": {
-        "base_game": 10,
-        "creation_club": 7,
-        "creation_store": 4,
-        "mods": 35,
-        "vanilla_replacements": 2,
-        "total": 58
-    }
+    "main": int,  # Count of main game BA2s (Fallout4 - *.ba2)
+    "main_textures": int,  # Count of main texture BA2s
+    "dlc": int,  # Count of DLC BA2s (DLC*.ba2)
+    "dlc_textures": int,  # Count of DLC texture BA2s
+    "creation_club": int,  # Count of active CC BA2s (cc*.ba2 in Fallout4.ccc)
+    "creation_club_textures": int,  # Count of active CC texture BA2s
+    "creation_store": int,  # Count of Creation Store BA2s (encrypted)
+    "creation_store_textures": int,  # Count of Creation Store texture BA2s
+    "base_game": int,  # Sum of main + dlc + creation_club + creation_store
+    "base_game_textures": int,  # Sum of texture variants
+    "mod_main": int,  # Count of non-replacement mod main BA2s
+    "mod_textures": int,  # Count of non-replacement mod texture BA2s
+    "replacements": int,  # Count of mod BA2s replacing vanilla files
+    "replacement_main": int,  # Count of replacement main BA2s
+    "replacement_textures": int,  # Count of replacement texture BA2s
+    "vanilla_ba2_names": set,  # Set of all vanilla BA2 filenames (lowercase)
+    "main_total": int,  # base_game + mod_main
+    "texture_total": int,  # base_game_textures + mod_textures
 }
 ```
 
@@ -64,8 +66,8 @@ Count all BA2 files with comprehensive breakdown. **Only counts active mods** (e
 
 ```python
 counts = handler.count_ba2_files()
-print(f"Main BA2s: {counts['main']['total']}/255")
-print(f"Texture BA2s: {counts['texture']['total']}/254")
+print(f"Main BA2s: {counts['main_total']}/255")
+print(f"Texture BA2s: {counts['texture_total']}/254")
 ```
 
 #### `list_ba2_mods() -> List[Dict[str, Any]]`
