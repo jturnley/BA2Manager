@@ -1,4 +1,4 @@
-# Quick Start Guide - BA2 Manager Pro v1.1.4
+# Quick Start Guide - BA2 Manager v2.0.0
 
 ## Running the Application
 
@@ -112,7 +112,7 @@ On first run, the app will attempt to auto-detect paths. If needed, manually con
 
 ## Load Order Protection
 
-BA2 Manager Pro **automatically protects your load order**:
+BA2 Manager **automatically protects your load order**:
 
 - **Automatic Backups**: Creates `.bak` files for `modlist.txt` and `plugins.txt` on startup
 - **Atomic Operations**: Extraction/restoration uses temporary directories

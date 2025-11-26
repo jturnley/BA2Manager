@@ -1,9 +1,9 @@
-# BA2 Manager Pro - The Ultimate BA2 Limit Fix
+# BA2 Manager - The Ultimate BA2 Limit Fix
 
 **Tired of hitting the 255 BA2 limit in Fallout 4?**
 **Does your game crash because you have too many mods?**
 
-**BA2 Manager Pro** is a modern, standalone tool designed to help you manage your Fallout 4 archives effortlessly. It takes the guesswork out of the BA2 limit and keeps your load order stable.
+**BA2 Manager** is a modern, standalone tool designed to help you manage your Fallout 4 archives effortlessly. It takes the guesswork out of the BA2 limit and keeps your load order stable.
 
 ---
 
@@ -11,7 +11,7 @@
 Fallout 4 has a hard engine limit: it can only load around **255 BA2 archive files** (including the base game and DLCs). If you go over this limit, your game will crash, textures will vanish, or audio will break.
 
 ### ✅ The Solution
-**BA2 Manager Pro** scans your load order, counts your BA2s, and lets you safely **extract** mod archives into loose files. This lowers your BA2 count while keeping the mod active in your game. It handles everything automatically—backups, extraction, and restoration.
+**BA2 Manager** scans your load order, counts your BA2s, and lets you safely **extract** mod archives into loose files. This lowers your BA2 count while keeping the mod active in your game. It handles everything automatically—backups, extraction, and restoration.
 
 ---
 

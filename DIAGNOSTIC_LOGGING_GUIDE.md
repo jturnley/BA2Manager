@@ -1,4 +1,4 @@
-# BA2 Manager Pro - Diagnostic Logging Guide
+# BA2 Manager - Diagnostic Logging Guide
 
 This guide explains the comprehensive diagnostic logging added in v2.0.0-beta.3 to help troubleshoot merge operations.
 

@@ -1,4 +1,4 @@
-# Changelog - BA2 Manager Pro
+# Changelog - BA2 Manager
 
 All notable changes to this project will be documented in this file.
 

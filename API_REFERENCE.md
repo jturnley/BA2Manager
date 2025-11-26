@@ -1,4 +1,4 @@
-# BA2 Manager Pro - API Reference v2.0.0
+# BA2 Manager - API Reference v2.0.0
 
 ## BA2Handler Class
 
@@ -455,7 +455,7 @@ print(f"{info.mod_name}: {info.size / 1024 / 1024:.1f} MB")
 
 ### Load Order Protection
 
-BA2 Manager Pro automatically protects your load order:
+BA2 Manager automatically protects your load order:
 
 - **Automatic backups**: `modlist.txt.bak` and `plugins.txt.bak` created on startup
 - **Atomic operations**: Extractions use temporary directories
@@ -776,7 +776,7 @@ if result["success"]:
 
 ## Version Information
 
-- **BA2 Manager Pro**: v2.0.0
+- **BA2 Manager**: v2.0.0
 - **Python**: 3.12+
 - **PyQt6**: 6.10.0+
 - **PyInstaller**: 6.16.0+

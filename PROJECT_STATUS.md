@@ -1,6 +1,6 @@
-# BA2 Manager Pro - Project Status Report
+# BA2 Manager - Project Status Report
 
-**Project**: BA2 Manager Pro  
+**Project**: BA2 Manager  
 **Current Version**: v1.1.0  
 **Date**: January 2025  
 **Status**: ✅ Production Ready  
@@ -28,7 +28,7 @@
 
 ## Executive Summary
 
-BA2 Manager Pro is a feature-complete PyQt6 GUI application for managing Fallout 4 BA2 archives in Mod Organizer 2. The application provides granular control over mod extraction/restoration, automatic load order protection, and intelligent Creation Club management.
+BA2 Manager is a feature-complete PyQt6 GUI application for managing Fallout 4 BA2 archives in Mod Organizer 2. The application provides granular control over mod extraction/restoration, automatic load order protection, and intelligent Creation Club management.
 
 **Key Achievement**: Production-ready v1.1.0 with all planned features implemented, fully tested, and documented.
 
@@ -474,7 +474,7 @@ python -m ba2_manager.main
 
 ## Final Summary
 
-BA2 Manager Pro v1.1.0 is **production-ready** with all planned features implemented, tested, and documented. The application provides a comprehensive solution for managing Fallout 4 BA2 archives with advanced features:
+BA2 Manager v2.0.0 is **production-ready** with all planned features implemented, tested, and documented. The application provides a comprehensive solution for managing Fallout 4 BA2 archives with advanced features:
 
 - ✅ Granular extraction (Main/Texture independent)
 - ✅ Load order protection (automatic backups)
