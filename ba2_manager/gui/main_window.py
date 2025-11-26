@@ -1579,7 +1579,7 @@ class MainWindow(QMainWindow):
                         return str(archive2_path)
         except Exception as e:
             # Registry key not found or other error
-            print(f"Registry detection failed: {e}")
+            self.logger.debug(f"Registry detection failed: {e}")
             return None
         return None
 
@@ -1654,7 +1654,7 @@ class MainWindow(QMainWindow):
                             # Standard format
                             return value.strip()
         except Exception as e:
-            print(f"Error reading ModOrganizer.ini: {e}")
+            self.logger.debug(f"Error reading ModOrganizer.ini: {e}")
             return None
         return None
 
