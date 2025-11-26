@@ -53,6 +53,15 @@ htmlcov/
 releases/
 CC_Packer/release/
 *.zip
+
+# Test files and directories
+test_*.ba2
+temp_*/
+test_*/
+
+# Texture files (large binary assets for testing)
+*.DDS
+*.dds
 dist/
 build/
 
@@ -70,3 +79,4 @@ test_*/
 *.zip
 analyze_*.py
 source_icon.png
+*.log
