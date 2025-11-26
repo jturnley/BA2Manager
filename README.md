@@ -1,4 +1,4 @@
-# BA2 Manager Pro v1.1.4
+# BA2 Manager Pro v2.0.0
 
 A comprehensive Python application for managing Fallout 4 BA2 archive files through Mod Organizer 2. This project recreates and enhances the functionality of the PowerShell `manage_ba2_pro.ps1` script as a professional cross-platform GUI application.
 
