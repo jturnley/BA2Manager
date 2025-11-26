@@ -588,12 +588,13 @@ class BA2Handler:
             for ba2_file in mod_ba2s:
                 ba2_name = ba2_file.name.lower()
                 
-                # Find the actual mod folder name (parent might be "textures" subfolder)
-                # Walk up until we find a directory that's a direct child of mods_path
-                mod_folder = ba2_file.parent
-                while mod_folder.parent != mods_path and mod_folder.parent != mod_folder:
-                    mod_folder = mod_folder.parent
-                mod_folder_name = mod_folder.name.lower()
+                # Find the actual mod folder name (first part of relative path from mods directory)
+                try:
+                    relative_path = ba2_file.relative_to(mods_path)
+                    mod_folder_name = relative_path.parts[0].lower()
+                except ValueError:
+                    # File is not under mods_path, skip
+                    continue
                 
                 # Only count BA2s from active mods (if active_mods is not empty, check it; if empty, count all)
                 if active_mods_set and mod_folder_name not in active_mods_set:
@@ -882,7 +883,7 @@ class BA2Handler:
             self.logger.error(f"Failed to unregister mod from MO2 lists: {e}")
             return False
 
-    def _get_disabled_plugin_mods(self, mo2_root: Optional[Path] = None) -> set:
+    def _get_disabled_plugin_mods(self, mo2_root: Optional[Path] = None) -> set[str]:
         """Read plugins.txt to identify mods with disabled plugins.
         
         Args:
@@ -1168,9 +1169,12 @@ class BA2Handler:
                         continue
                         
                     try:
-                        # Check what's in the backup
-                        main_ba2_in_backup = any(f.name.lower().endswith('.ba2') and " - texture" not in f.name.lower() for f in mod_backup.iterdir())
-                        texture_ba2_in_backup = any(" - texture" in f.name.lower() and f.name.lower().endswith('.ba2') for f in mod_backup.iterdir())
+                        # Get all BA2 files in backup once
+                        backup_ba2_files = [f for f in mod_backup.iterdir() if f.name.lower().endswith('.ba2')]
+                        
+                        # Check what types are in backup
+                        main_ba2_in_backup = any(" - texture" not in f.name.lower() for f in backup_ba2_files)
+                        texture_ba2_in_backup = any(" - texture" in f.name.lower() for f in backup_ba2_files)
                         
                         if not main_ba2_in_backup and not texture_ba2_in_backup:
                             continue
@@ -2000,19 +2004,20 @@ class BA2Handler:
                 merged_main_path = mod_folder / f"{output_name} - Main.ba2"
                 self.logger.info(f"Creating merged main BA2: {merged_main_path.name}")
                 
-                # Count files and calculate uncompressed size
-                general_file_count = sum(1 for item in general_path.rglob("*") if item.is_file())
-                uncompressed_size = sum(item.stat().st_size for item in general_path.rglob("*") if item.is_file())
+                # Get all files once for counting and size calculation
+                general_files = list(general_path.rglob("*"))
+                general_files = [f for f in general_files if f.is_file()]
+                general_file_count = len(general_files)
+                uncompressed_size = sum(f.stat().st_size for f in general_files)
                 self.logger.info(f"Packing {general_file_count} files, {uncompressed_size / (1024**2):.2f} MB uncompressed")
                 
                 # Create source file list
                 source_list = temp_path / "general_files.txt"
                 with open(source_list, 'w') as f:
-                    for item in general_path.rglob("*"):
-                        if item.is_file():
-                            # Write relative path from general_path
-                            rel_path = item.relative_to(general_path)
-                            f.write(f"{rel_path}\n")
+                    for item in general_files:
+                        # Write relative path from general_path
+                        rel_path = item.relative_to(general_path)
+                        f.write(f"{rel_path}\n")
                 
                 import time
                 pack_start = time.time()
@@ -2040,11 +2045,9 @@ class BA2Handler:
             
             # Pack Textures BA2 (with 3GB split logic)
             if texture_ba2s:
-                texture_file_count = sum(1 for item in textures_path.rglob("*") if item.is_file())
-                texture_files = []
-                for item in textures_path.rglob("*"):
-                    if item.is_file():
-                        texture_files.append((item, item.stat().st_size))
+                # Get all texture files once
+                texture_files = [(item, item.stat().st_size) for item in textures_path.rglob("*") if item.is_file()]
+                texture_file_count = len(texture_files)
                 
                 # Sort by size (descending) to optimize packing, or keep path order?
                 # Path order is safer for related textures, but size sorting helps bin packing.
