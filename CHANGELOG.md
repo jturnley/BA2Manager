@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.1] - 2025-11-26
+
+### Fixed
+- **Sound File Handling**: Separated sound files (.xwm, .wav, .fuz) into uncompressed BA2 archives
+  - Sound files are now extracted and repacked with no compression to preserve audio quality
+  - CC BA2 merge now creates separate `{name} - Sounds.ba2` archive
+  - Custom mod merge includes sound file separation for better organization
+  - Automatic dummy ESL creation for sound archives
+  - Prevents audio artifacts that could occur with compressed sound data
+
+### Changed
+- Enhanced logging for sound file separation and repacking operations
+- Updated merge summaries to include sound archive counts
+
 ## [2.0.0] - 2025-11-25
 
 ### Added

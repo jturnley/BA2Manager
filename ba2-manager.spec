@@ -5,8 +5,8 @@ a = Analysis(
     ['ba2_manager\\main.py'],
     pathex=[],
     binaries=[],
-    datas=[('ba2_manager/resources', 'resources')],
-    hiddenimports=['PyQt6', 'ba2_manager.core', 'ba2_manager.gui'],
+    datas=[],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -32,7 +32,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='app.ico',
 )
 coll = COLLECT(
     exe,

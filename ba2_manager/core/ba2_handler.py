@@ -1985,8 +1985,27 @@ class BA2Handler:
                 else:
                     self.logger.debug("No duplicate files detected - all files unique")
             
-            # 4. Create merged archives
+            # 4. Separate Sounds
+            sounds_dir = temp_path / "Sounds"
+            sounds_dir.mkdir()
+            sound_extensions = {".xwm", ".wav", ".fuz"}
+            has_sounds = False
+            
+            for f in general_path.rglob("*"):
+                if f.is_file() and f.suffix.lower() in sound_extensions:
+                    rel = f.relative_to(general_path)
+                    dest = sounds_dir / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(f), str(dest))
+                    has_sounds = True
+            
+            if has_sounds:
+                sound_file_count = sum(1 for _ in sounds_dir.rglob("*") if _.is_file())
+                self.logger.info(f"Separated {sound_file_count} sound files to separate archive")
+            
+            # 5. Create merged archives
             merged_main_path = None
+            merged_sounds_path = None
             merged_texture_paths = []
             general_file_count = 0
             texture_file_count = 0
@@ -2042,6 +2061,34 @@ class BA2Handler:
                 self.logger.info(f"  Compression: {uncompressed_size / (1024**2):.1f} MB → {merged_size / 1024 / 1024:.1f} MB ({compression_ratio:.1f}%)")
                 self.logger.info(f"  Original {len(general_ba2s)} BA2s: {original_main_size / 1024 / 1024:.1f} MB")
                 self.logger.info(f"  Space saved: {(original_main_size - merged_size) / 1024 / 1024:.1f} MB ({((original_main_size - merged_size) / original_main_size * 100):.1f}%)")
+            
+            # Pack Sounds BA2 (Uncompressed)
+            if has_sounds:
+                merged_sounds_path = mod_folder / f"{output_name} - Sounds.ba2"
+                sound_file_count = sum(1 for _ in sounds_dir.rglob("*") if _.is_file())
+                uncompressed_size = sum(f.stat().st_size for f in sounds_dir.rglob("*") if f.is_file())
+                self.logger.info(f"Creating {merged_sounds_path.name} ({sound_file_count} files, {uncompressed_size / (1024**2):.2f} MB uncompressed)...")
+                
+                import time
+                pack_start = time.time()
+                result = subprocess.run(
+                    [self.archive2_path, str(sounds_dir), 
+                     f"-c={merged_sounds_path}", 
+                     "-f=General",
+                     "-compression=None",
+                     f"-r={sounds_dir}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=600
+                )
+                pack_time = time.time() - pack_start
+                
+                if result.returncode != 0:
+                    raise Exception(f"Failed to create merged sounds BA2: {result.stderr}")
+                
+                merged_size = merged_sounds_path.stat().st_size
+                self.logger.info(f"Created {merged_sounds_path.name} (uncompressed) in {pack_time:.1f}s")
+                self.logger.info(f"  Final: {merged_size / 1024 / 1024:.1f} MB, {sound_file_count} files")
             
             # Pack Textures BA2 (with 3GB split logic)
             if texture_ba2s:
@@ -2151,13 +2198,22 @@ class BA2Handler:
                 ba2_file.unlink()
             self.logger.info(f"Removed {len(cc_ba2_files)} original CC BA2 files")
             
-            # 6. Create dummy ESL to load merged BA2s
+            # 6. Create dummy ESLs to load merged BA2s
+            created_esls = []
             dummy_esl = mod_folder / f"{output_name}.esl"
             self._create_dummy_esl(dummy_esl)
+            created_esls.append(dummy_esl.name)
             self.logger.info(f"Created dummy ESL: {dummy_esl.name}")
             
+            # Create dummy ESL for sounds if they exist
+            if has_sounds:
+                sounds_esl = mod_folder / f"{output_name}_Sounds.esl"
+                self._create_dummy_esl(sounds_esl)
+                created_esls.append(sounds_esl.name)
+                self.logger.info(f"Created dummy ESL for sounds: {sounds_esl.name}")
+            
             # 7. Register mod in MO2 mod and plugin lists
-            self._register_mo2_mod(output_name, dummy_esl.name)
+            self._register_mo2_mod(output_name, created_esls[0])
             
             # 8. Clean up temp directory
             shutil.rmtree(temp_path)
@@ -2168,12 +2224,14 @@ class BA2Handler:
             self.logger.info(f"  Original: {len(cc_ba2_files)} CC BA2 files")
             merged_count = 1 if merged_main_path else 0
             merged_count += len(merged_texture_paths) if texture_ba2s else 0
-            self.logger.info(f"  Merged: {merged_count} BA2 file(s)")
+            merged_count += 1 if has_sounds else 0
+            self.logger.info(f"  Merged: {merged_count} BA2 file(s) (Main, Textures, Sounds)")
             self.logger.info(f"  Reduction: {len(cc_ba2_files)} → {merged_count} ({(1 - merged_count/len(cc_ba2_files))*100:.1f}% fewer files)")
             
             total_original = original_main_size + original_texture_size
             total_merged = (merged_main_path.stat().st_size if merged_main_path else 0)
             total_merged += sum(p.stat().st_size for p in merged_texture_paths) if merged_texture_paths else 0
+            total_merged += (merged_sounds_path.stat().st_size if merged_sounds_path else 0)
             self.logger.info(f"  Total space: {total_original / (1024**2):.1f} MB → {total_merged / (1024**2):.1f} MB")
             self.logger.info(f"  Space saved: {(total_original - total_merged) / (1024**2):.1f} MB ({((total_original - total_merged)/total_original*100):.1f}%)")
             self.logger.info(f"  Backup: {backup_path}")
@@ -2349,8 +2407,27 @@ class BA2Handler:
                 new_files = files_after - files_before
                 self.logger.debug(f"  Extracted {new_files} files in {extract_time:.1f}s (total now: {files_after})")
             
+            # Separate Sounds
+            sounds_dir = temp_path / "Sounds"
+            sounds_dir.mkdir()
+            sound_extensions = {".xwm", ".wav", ".fuz"}
+            has_sounds = False
+            
+            for f in general_path.rglob("*"):
+                if f.is_file() and f.suffix.lower() in sound_extensions:
+                    rel = f.relative_to(general_path)
+                    dest = sounds_dir / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(f), str(dest))
+                    has_sounds = True
+            
+            if has_sounds:
+                sound_file_count = sum(1 for _ in sounds_dir.rglob("*") if _.is_file())
+                self.logger.info(f"Separated {sound_file_count} sound files to separate archive")
+            
             # Pack main BA2
             merged_main_path = None
+            merged_sounds_path = None
             merged_texture_paths = []
             if main_ba2s:
                 merged_main_path = data_path / f"{output_name} - Main.ba2"
@@ -2374,6 +2451,34 @@ class BA2Handler:
                 merged_size = merged_main_path.stat().st_size
                 compression_ratio = (1 - merged_size / uncompressed_size) * 100 if uncompressed_size > 0 else 0
                 self.logger.info(f"  Created in {pack_time:.1f}s: {merged_size / 1024 / 1024:.1f} MB ({compression_ratio:.1f}% compression)")
+            
+            # Pack Sounds BA2 (Uncompressed)
+            if has_sounds:
+                merged_sounds_path = data_path / f"{output_name} - Sounds.ba2"
+                sound_file_count = sum(1 for _ in sounds_dir.rglob("*") if _.is_file())
+                uncompressed_size = sum(f.stat().st_size for f in sounds_dir.rglob("*") if f.is_file())
+                self.logger.info(f"Creating {merged_sounds_path.name} ({sound_file_count} files, {uncompressed_size / (1024**2):.2f} MB uncompressed)...")
+                
+                import time
+                pack_start = time.time()
+                result = subprocess.run(
+                    [self.archive2_path, str(sounds_dir), 
+                     f"-c={merged_sounds_path}", 
+                     "-f=General",
+                     "-compression=None",
+                     f"-r={sounds_dir}"],
+                    capture_output=True,
+                    text=True,
+                    timeout=600
+                )
+                pack_time = time.time() - pack_start
+                
+                if result.returncode != 0:
+                    raise Exception(f"Failed to create {merged_sounds_path.name}: {result.stderr}")
+                
+                merged_size = merged_sounds_path.stat().st_size
+                self.logger.info(f"Created {merged_sounds_path.name} (uncompressed) in {pack_time:.1f}s")
+                self.logger.info(f"  Final: {merged_size / 1024 / 1024:.1f} MB, {sound_file_count} files")
             
             # Pack texture BA2s (with 4GB split)
             if texture_ba2s:
@@ -2441,9 +2546,17 @@ class BA2Handler:
                     merged_texture_paths.append(merged_textures_path)
                     self.logger.info(f"  Created {archive_name} in {pack_time:.1f}s: {merged_size / 1024 / 1024:.1f} MB ({compression_ratio:.1f}% compression)")
             
-            # Create dummy ESL
+            # Create dummy ESL(s)
+            created_esls = []
             dummy_esl = data_path / f"{output_name}.esl"
             self._create_dummy_esl(dummy_esl)
+            created_esls.append(dummy_esl.name)
+            
+            # Create dummy ESL for sounds if they exist
+            if has_sounds:
+                sounds_esl = data_path / f"{output_name}_Sounds.esl"
+                self._create_dummy_esl(sounds_esl)
+                created_esls.append(sounds_esl.name)
             
             # Delete original BA2 files
             for ba2_file in all_ba2s:
@@ -2456,13 +2569,14 @@ class BA2Handler:
             self.logger.info("="*60)
             self.logger.info(f"CUSTOM MERGE SUMMARY: {output_name}")
             self.logger.info(f"  Source: {len(mod_names)} mods, {len(all_ba2s)} BA2 files")
-            merged_count = (1 if merged_main_path else 0) + len(merged_texture_paths)
-            self.logger.info(f"  Merged: {merged_count} BA2 file(s)")
+            merged_count = (1 if merged_main_path else 0) + len(merged_texture_paths) + (1 if has_sounds else 0)
+            self.logger.info(f"  Merged: {merged_count} BA2 file(s) (Main, Textures, Sounds)")
             self.logger.info(f"  Reduction: {len(all_ba2s)} → {merged_count} ({(1 - merged_count/len(all_ba2s))*100:.1f}% fewer files)")
             
             total_original = original_main_size + original_texture_size
             total_merged = (merged_main_path.stat().st_size if merged_main_path else 0)
             total_merged += sum(p.stat().st_size for p in merged_texture_paths)
+            total_merged += (merged_sounds_path.stat().st_size if merged_sounds_path else 0)
             self.logger.info(f"  Total space: {total_original / (1024**2):.1f} MB → {total_merged / (1024**2):.1f} MB")
             self.logger.info(f"  Space saved: {(total_original - total_merged) / (1024**2):.1f} MB ({((total_original - total_merged)/total_original*100):.1f}%)")
             self.logger.info(f"  Backup: {backup_path}")
