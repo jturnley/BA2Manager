@@ -2245,52 +2245,108 @@ class BA2Handler:
                 self.logger.info(f"  Original {len(general_ba2s)} BA2s: {original_main_size / 1024 / 1024:.1f} MB")
                 self.logger.info(f"  Space saved: {(original_main_size - merged_size) / 1024 / 1024:.1f} MB ({((original_main_size - merged_size) / original_main_size * 100):.1f}%)")
             
-            # Pack Textures BA2 (single file - no splitting)
+            # Pack Textures BA2 (with 3GB split logic)
             if texture_ba2s:
                 texture_file_count = sum(1 for item in textures_path.rglob("*") if item.is_file())
-                uncompressed_size = sum(item.stat().st_size for item in textures_path.rglob("*") if item.is_file())
+                texture_files = []
+                for item in textures_path.rglob("*"):
+                    if item.is_file():
+                        texture_files.append((item, item.stat().st_size))
                 
-                # Create single texture archive
-                archive_name = f"{output_name} - Textures.ba2"
-                merged_textures_path = mod_folder / archive_name
+                # Sort by size (descending) to optimize packing, or keep path order?
+                # Path order is safer for related textures, but size sorting helps bin packing.
+                # Let's stick to path order (default) but just iterate.
+                # Actually, simple accumulation is fine.
                 
-                self.logger.info(f"Creating {archive_name} with {texture_file_count} files ({uncompressed_size / (1024**3):.2f}GB uncompressed)...")
+                # 3GB limit (approx 3.5GB max safe limit, using 3GB to be safe)
+                MAX_BA2_SIZE = 3 * 1024 * 1024 * 1024
                 
-                # Log sample of paths being packed for debugging
-                sample_files = list(textures_path.rglob("*"))[:min(3, texture_file_count)]
-                if sample_files:
-                    sample_paths = [f.relative_to(textures_path) for f in sample_files]
-                    self.logger.debug(f"  Sample paths in BA2 (should start with 'Textures\\'): {[str(p) for p in sample_paths]}")
-                    # Verify structure: paths should start with "Textures/" for proper game loading
-                    for p in sample_paths:
-                        if not str(p).lower().startswith("textures"):
-                            self.logger.warning(f"  WARNING: Path doesn't start with 'Textures\\': {p}")
+                archive_groups = []
+                current_group = []
+                current_size = 0
+                
+                for file_path, file_size in texture_files:
+                    # If adding this file exceeds limit, start new group
+                    # (Only if current group is not empty - single huge file must go somewhere)
+                    if current_size + file_size > MAX_BA2_SIZE and current_group:
+                        archive_groups.append(current_group)
+                        current_group = []
+                        current_size = 0
+                    
+                    current_group.append(file_path)
+                    current_size += file_size
+                
+                if current_group:
+                    archive_groups.append(current_group)
+                
+                total_uncompressed = sum(size for _, size in texture_files)
+                self.logger.info(f"Total uncompressed texture data: {total_uncompressed / (1024**3):.2f}GB")
+                
+                if len(archive_groups) > 1:
+                    self.logger.info(f"Splitting textures into {len(archive_groups)} archives (exceeded 3GB limit)")
                 
                 import time
-                pack_start = time.time()
-                result = subprocess.run(
-                    [self.archive2_path, str(textures_path), 
-                     f"-c={merged_textures_path}", 
-                     "-f=DDS",
-                     f"-r={textures_path}"],
-                    capture_output=True,
-                    text=True,
-                    timeout=600
-                )
-                pack_time = time.time() - pack_start
                 
-                if result.returncode != 0:
-                    raise Exception(f"Failed to create {archive_name}: {result.stderr}")
-                
-                merged_size = merged_textures_path.stat().st_size
-                compression_ratio = (1 - merged_size / uncompressed_size) * 100 if uncompressed_size > 0 else 0
-                merged_texture_paths.append(merged_textures_path)
-                self.logger.info(f"  Created {archive_name}: {merged_size / 1024 / 1024:.1f} MB ({texture_file_count} files) in {pack_time:.1f}s")
-                self.logger.info(f"    Compression: {uncompressed_size / (1024**3):.2f} GB → {merged_size / 1024 / 1024:.1f} MB ({compression_ratio:.1f}%)")
+                for idx, file_group in enumerate(archive_groups):
+                    # Naming: 
+                    # Index 0: CCMerged - Textures.ba2 (and CCMerged.esl)
+                    # Index 1: CCMerged_Part2 - Textures.ba2 (and CCMerged_Part2.esl)
+                    # Index 2: CCMerged_Part3 - Textures.ba2 (and CCMerged_Part3.esl)
+                    
+                    suffix = "" if idx == 0 else f"_Part{idx + 1}"
+                    archive_name = f"{output_name}{suffix} - Textures.ba2"
+                    merged_textures_path = mod_folder / archive_name
+                    
+                    group_uncompressed = sum(f.stat().st_size for f in file_group)
+                    self.logger.info(f"Creating {archive_name} with {len(file_group)} files ({group_uncompressed / (1024**3):.2f}GB uncompressed)...")
+                    
+                    # Create temp folder for this group
+                    split_temp = temp_path / f"textures_split_{idx}"
+                    if split_temp.exists():
+                        shutil.rmtree(split_temp)
+                    split_temp.mkdir(exist_ok=True)
+                    
+                    # Copy files to temp folder (preserving structure)
+                    for file_path in file_group:
+                        rel_path = file_path.relative_to(textures_path)
+                        dest_path = split_temp / rel_path
+                        dest_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(file_path, dest_path)
+                    
+                    pack_start = time.time()
+                    result = subprocess.run(
+                        [self.archive2_path, str(split_temp), 
+                         f"-c={merged_textures_path}", 
+                         "-f=DDS",
+                         f"-r={split_temp}"],
+                        capture_output=True,
+                        text=True,
+                        timeout=600
+                    )
+                    pack_time = time.time() - pack_start
+                    
+                    if result.returncode != 0:
+                        raise Exception(f"Failed to create {archive_name}: {result.stderr}")
+                    
+                    merged_size = merged_textures_path.stat().st_size
+                    compression_ratio = (1 - merged_size / group_uncompressed) * 100 if group_uncompressed > 0 else 0
+                    merged_texture_paths.append(merged_textures_path)
+                    
+                    self.logger.info(f"  Created {archive_name}: {merged_size / 1024 / 1024:.1f} MB in {pack_time:.1f}s")
+                    self.logger.info(f"    Compression: {compression_ratio:.1f}%")
+                    
+                    # Create corresponding ESL if this is a split part (Part2+)
+                    # The main ESL (CCMerged.esl) is created later in step 6
+                    if idx > 0:
+                        part_esl_name = f"{output_name}{suffix}.esl"
+                        part_esl_path = mod_folder / part_esl_name
+                        self._create_dummy_esl(part_esl_path)
+                        self._register_mo2_mod(output_name, part_esl_name)
+                        self.logger.info(f"  Created and registered {part_esl_name}")
                 
                 # Log total texture results
                 total_merged_texture_size = sum(p.stat().st_size for p in merged_texture_paths)
-                self.logger.info(f"Total texture archives: {len(merged_texture_paths)}, {total_merged_texture_size / 1024 / 1024:.1f} MB, {texture_file_count} files")
+                self.logger.info(f"Total texture archives: {len(merged_texture_paths)}, {total_merged_texture_size / 1024 / 1024:.1f} MB")
                 self.logger.info(f"  Original {len(texture_ba2s)} BA2s: {original_texture_size / 1024 / 1024:.1f} MB")
                 self.logger.info(f"  Space saved: {(original_texture_size - total_merged_texture_size) / 1024 / 1024:.1f} MB ({((original_texture_size - total_merged_texture_size) / original_texture_size * 100):.1f}%)")
             
@@ -2672,8 +2728,12 @@ class BA2Handler:
             mods_path = Path(self.mo2_dir)
             mod_folder = mods_path / mod_name
             removed_files = []
+            esl_files = []
             
             if mod_folder.exists():
+                # Find all ESL files to unregister before deleting
+                esl_files = [f.name for f in mod_folder.glob("*.esl")]
+                
                 # List what's being removed
                 for item in mod_folder.iterdir():
                     removed_files.append(item.name)
@@ -2683,7 +2743,13 @@ class BA2Handler:
                 self.logger.info(f"Removed merged mod folder: {mod_folder}")
             
             # 3. Unregister mod from MO2 lists
-            self._unregister_mo2_mod(mod_name, f"{mod_name}.esl")
+            # If we found ESLs, unregister each one
+            if esl_files:
+                for esl in esl_files:
+                    self._unregister_mo2_mod(mod_name, esl)
+            else:
+                # Fallback: try to unregister default name if folder was already gone
+                self._unregister_mo2_mod(mod_name, f"{mod_name}.esl")
             
             # 4. Restore original CC BA2 files
             restored_count = 0

@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0-beta.9] - 2025-11-25
+
+### Added
+- **CC Packer Standalone**: New standalone tool for merging Creation Club content.
+  - Located in `CC_Packer/`.
+  - Features smart splitting for large texture archives (>3GB).
+  - Auto-manages `plugins.txt` for seamless integration.
+  - Independent of Mod Organizer 2.
+
 ## [1.1.4] - 2025-11-24
 
 ### Added
