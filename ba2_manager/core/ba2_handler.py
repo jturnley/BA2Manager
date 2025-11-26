@@ -349,12 +349,12 @@ class BA2Handler:
         # Setup logging
         import sys
         self.logger = logging.getLogger("BA2Handler")
-        # Set log level based on config (default to True for beta testing)
-        debug_logging = True
+        # Set log level based on config
+        debug_logging = False
         try:
             from ba2_manager.config import Config
             config = Config()
-            debug_logging = config.get("debug_logging", True)
+            debug_logging = config.get("debug_logging", False)
         except Exception:
             pass
         self.logger.setLevel(logging.DEBUG if debug_logging else logging.INFO)
@@ -364,7 +364,7 @@ class BA2Handler:
         # Always log to working directory
         try:
             handler1 = logging.FileHandler("ba2-manager.log", mode='a')
-            handler1.setLevel(logging.DEBUG)
+            handler1.setLevel(logging.DEBUG if debug_logging else logging.INFO)
             handler1.setFormatter(formatter)
             self.logger.addHandler(handler1)
         except Exception as e:
@@ -372,7 +372,7 @@ class BA2Handler:
         # Always log to /dist/ba2-manager.log
         try:
             handler2 = logging.FileHandler("dist/ba2-manager.log", mode='a')
-            handler2.setLevel(logging.DEBUG)
+            handler2.setLevel(logging.DEBUG if debug_logging else logging.INFO)
             handler2.setFormatter(formatter)
             self.logger.addHandler(handler2)
         except Exception as e:
@@ -380,7 +380,7 @@ class BA2Handler:
         # Always log to console
         try:
             console_handler = logging.StreamHandler(sys.stdout)
-            console_handler.setLevel(logging.DEBUG)
+            console_handler.setLevel(logging.DEBUG if debug_logging else logging.INFO)
             console_handler.setFormatter(formatter)
             self.logger.addHandler(console_handler)
         except Exception as e:

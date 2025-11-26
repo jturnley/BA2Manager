@@ -995,7 +995,7 @@ class MainWindow(QMainWindow):
         
         # Debug Logging Checkbox
         self.debug_logging_checkbox = QCheckBox("Enable Debug Logging (for troubleshooting)")
-        self.debug_logging_checkbox.setChecked(self.config.get("debug_logging", True))
+        self.debug_logging_checkbox.setChecked(self.config.get("debug_logging", False))
         form_layout.addRow("Debug Logging:", self.debug_logging_checkbox)
         settings_group.setLayout(form_layout)
         settings_layout.addWidget(settings_group)

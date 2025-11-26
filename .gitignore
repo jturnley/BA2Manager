@@ -56,5 +56,12 @@ mo2_fo4/
 *.log
 crash_log.txt
 ba2_manager_config.json
+ba2_manager_modlist.json
 debug_regex.py
 test_detection.py
+temp_*/
+test_*/
+*.ba2
+*.zip
+analyze_*.py
+source_icon.png
