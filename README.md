@@ -28,6 +28,22 @@ A comprehensive Python application for managing Fallout 4 BA2 archive files thro
 - **Standalone Executable**: No Python installation required for Windows users
 - **Real-time Monitoring**: File watcher detects CC changes immediately
 
+## Related Projects
+
+### CC-Packer - Standalone CC Archive Merger
+
+For a simpler, focused tool to merge Creation Club archives, check out **[CC-Packer](https://github.com/jturnley/CC-Packer)** - our companion tool:
+
+- Merges all CC BA2 files into unified archives
+- Reduces plugin count from 70+ to 1
+- Improves game load times by 10-30%
+- Automatic texture splitting to prevent crashes
+- Simple one-click operation
+
+**When to use which tool:**
+- Use **CC-Packer** for quick CC content merging
+- Use **BA2 Manager** for advanced archive operations, conflict detection, and batch processing
+
 ## Installation & Usage
 
 ### For End Users (Standalone Executable)
